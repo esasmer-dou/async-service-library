@@ -71,9 +71,6 @@ on:
       - development
       - release/**
       - hotfix/**
-    tags:
-      - 'v*'
-      - 'release-*'
   pull_request:
 
 jobs:
