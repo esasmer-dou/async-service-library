@@ -109,10 +109,10 @@ Bu suite kasitli olarak:
 - ayni queue dosyasi uzerinde coklu kill / restart donguleri dener
 - bilerek bozulmus header'a sahip queue dosyasi ile startup recovery'yi dener
 
-Uretilen raporlar:
+Uretilen raporlar yerelde / CI artefact'i olarak yazilir:
 
-- [reports/mapdb-abuse](E:\ReactorRepository\async-service-library\reports\mapdb-abuse)
-- [tr/reports/mapdb-abuse](E:\ReactorRepository\async-service-library\tr\reports\mapdb-abuse)
+- `reports/mapdb-abuse/`
+- `tr/reports/mapdb-abuse/`
 
 Ayni yipratici suite artik gece calisan CI workflow'u ile de kosulur:
 

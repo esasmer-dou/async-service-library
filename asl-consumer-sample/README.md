@@ -260,10 +260,10 @@ This suite intentionally:
 - repeats multiple pending kill / restart loops against the same queue file
 - starts the app on a deliberately header-corrupted queue file
 
-Generated reports are written under:
+Generated reports are written locally / as CI artifacts under:
 
-- [reports/mapdb-abuse](E:\ReactorRepository\async-service-library\reports\mapdb-abuse)
-- [tr/reports/mapdb-abuse](E:\ReactorRepository\async-service-library\tr\reports\mapdb-abuse)
+- `reports/mapdb-abuse/`
+- `tr/reports/mapdb-abuse/`
 
 The same destructive suite now runs in nightly CI:
 

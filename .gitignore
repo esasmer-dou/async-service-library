@@ -7,6 +7,7 @@
 
 data/
 reports/live-run/
-reports/real-sample/sample-runtime/
-reports/mapdb-abuse/*/sample-runtime/
-tr/reports/mapdb-abuse/*/sample-runtime/
+reports/real-sample/
+reports/mapdb-abuse/
+tr/reports/real-sample/
+tr/reports/mapdb-abuse/

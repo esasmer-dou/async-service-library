@@ -13,10 +13,10 @@ Bu dizin, benchmark ve operator raporlarinin Turkce karsiliklarini toplar.
 
 - [example-control-plane-benchmark-idle.md](E:\ReactorRepository\async-service-library\tr\reports\example-control-plane-benchmark-idle.md)
 - [example-control-plane-benchmark-backlog.md](E:\ReactorRepository\async-service-library\tr\reports\example-control-plane-benchmark-backlog.md)
-- [real-sample/control-plane-benchmark-gate-summary.md](E:\ReactorRepository\async-service-library\tr\reports\real-sample\control-plane-benchmark-gate-summary.md)
-- [real-sample/control-plane-benchmark-gate-release-note.md](E:\ReactorRepository\async-service-library\tr\reports\real-sample\control-plane-benchmark-gate-release-note.md)
-- [real-sample/control-plane-benchmark-gate-trend.md](E:\ReactorRepository\async-service-library\tr\reports\real-sample\control-plane-benchmark-gate-trend.md)
-- [mapdb-abuse](E:\ReactorRepository\async-service-library\tr\reports\mapdb-abuse)
+- `tr/reports/real-sample/control-plane-benchmark-gate-summary.md` (yerelde/CI artefact'i olarak uretilir, repoya commit edilmez)
+- `tr/reports/real-sample/control-plane-benchmark-gate-release-note.md` (yerelde/CI artefact'i olarak uretilir, repoya commit edilmez)
+- `tr/reports/real-sample/control-plane-benchmark-gate-trend.md` (yerelde/CI artefact'i olarak uretilir, repoya commit edilmez)
+- `tr/reports/mapdb-abuse/` (yerelde/CI artefact'i olarak uretilir, repoya commit edilmez)
 
 ## Not
 
@@ -24,6 +24,6 @@ Otomatik tarihsel snapshotlar birebir aynalanmaz; ama ana rapor sablonlari ve me
 
 MapDB yipratici test ciktilari:
 
-- cikti kok dizini: [tr/reports/mapdb-abuse](E:\ReactorRepository\async-service-library\tr\reports\mapdb-abuse)
+- cikti kok dizini: `tr/reports/mapdb-abuse/`
 - calistirma scripti: [run-mapdb-abuse-suite.ps1](E:\ReactorRepository\async-service-library\scripts\run-mapdb-abuse-suite.ps1)
 - gece calisan CI workflow'u: [mapdb-abuse-nightly.yml](E:\ReactorRepository\async-service-library\.github\workflows\mapdb-abuse-nightly.yml)

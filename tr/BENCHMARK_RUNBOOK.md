@@ -102,6 +102,8 @@ Profil cozumleme dosyasi:
 
 ## Uretilen Ciktilar
 
+Bu dosyalar yerelde uretilir ve CI artefact'i olarak yuklenir; repoya commit edilmez.
+
 Makine okunur:
 
 - [control-plane-benchmark-gate-summary.json](E:\ReactorRepository\async-service-library\reports\real-sample\control-plane-benchmark-gate-summary.json)

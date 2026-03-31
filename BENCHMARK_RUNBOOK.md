@@ -194,7 +194,7 @@ CI injection options:
 - GitHub secrets mapped into `ASL_BENCHMARK_*` environment variables
 - startup timeout can be raised with `ASL_BENCHMARK_READY_TIMEOUT_SECONDS` for slower environments
 
-Gate artifact output:
+Gate artifact output (generated locally and uploaded as CI artifacts, not committed):
 
 - default JSON summary: `reports/real-sample/control-plane-benchmark-gate-summary.json`
 - summary contains resolved profile source, branch/tag context, thresholds, key metrics, and pass/fail state
