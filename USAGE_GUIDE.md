@@ -77,6 +77,49 @@ Add the starter and annotations to your application module:
 
 If you build against the modules from the same workspace, you can keep using `${project.version}` instead of a fixed version.
 
+### 1.1 Add the GitHub Packages repository
+
+If you consume ASL from GitHub Packages instead of the same workspace, add the repository to your consumer `pom.xml`:
+
+```xml
+<repositories>
+    <repository>
+        <id>github-asl</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/async-service-library</url>
+        <releases>
+            <enabled>true</enabled>
+        </releases>
+        <snapshots>
+            <enabled>true</enabled>
+        </snapshots>
+    </repository>
+</repositories>
+```
+
+### 1.2 Add GitHub credentials to `settings.xml`
+
+GitHub Packages requires Maven credentials. Add this to `~/.m2/settings.xml`:
+
+```xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <id>github-asl</id>
+            <username>YOUR_GITHUB_USERNAME</username>
+            <password>YOUR_GITHUB_CLASSIC_PAT</password>
+        </server>
+    </servers>
+</settings>
+```
+
+Notes:
+
+- the repository `id` in `pom.xml` and the server `id` in `settings.xml` must match
+- the token must be able to read packages; for private or restricted package access, use a GitHub personal access token with at least `read:packages`
+- if you consume `-SNAPSHOT` versions, keep snapshot resolution enabled in the repository definition
+
 ### 2. Add the annotation processor
 
 ASL generates wrappers at compile time, so your compiler must run `asl-processor`.

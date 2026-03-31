@@ -52,6 +52,49 @@ Uygulama moduline starter ve annotation bagimliliklarini ekle:
 
 Ayni workspace icindeki modullerle derliyorsan sabit versiyon yerine `${project.version}` kullanabilirsin.
 
+### 1.1 GitHub Packages repository tanimini ekle
+
+Eger ASL'yi ayni workspace icinden degil de GitHub Packages uzerinden tuketeceksen, consumer `pom.xml` icine su repository tanimini ekle:
+
+```xml
+<repositories>
+    <repository>
+        <id>github-asl</id>
+        <url>https://maven.pkg.github.com/esasmer-dou/async-service-library</url>
+        <releases>
+            <enabled>true</enabled>
+        </releases>
+        <snapshots>
+            <enabled>true</enabled>
+        </snapshots>
+    </repository>
+</repositories>
+```
+
+### 1.2 `settings.xml` icine GitHub credentials ekle
+
+GitHub Packages Maven credentials ister. `~/.m2/settings.xml` icine sunu ekle:
+
+```xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+    <servers>
+        <server>
+            <id>github-asl</id>
+            <username>GITHUB_KULLANICI_ADIN</username>
+            <password>GITHUB_CLASSIC_PAT</password>
+        </server>
+    </servers>
+</settings>
+```
+
+Notlar:
+
+- `pom.xml` icindeki repository `id` ile `settings.xml` icindeki server `id` ayni olmalidir
+- token package okumaya yetkili olmalidir; private veya kisitli package erisimi icin en az `read:packages` yetkili GitHub personal access token kullan
+- `-SNAPSHOT` versiyonlar cekilecekse repository taniminda snapshot resolution acik kalmalidir
+
 ### 2. Annotation processor'u ekle
 
 ASL wrapper'lari derleme zamaninda urettigi icin `asl-processor` compiler'a baglanmalidir.
