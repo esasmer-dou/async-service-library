@@ -682,10 +682,10 @@ If you only add the dependencies, annotation processor, and governed annotations
 
 These are shared runtime fallbacks used when a method does not provide a more specific value.
 
-| Property | Default | If omitted |
-| --- | --- | --- |
-| `asl.runtime.default-unavailable-message` | `Method is disabled` | Disabled methods fall back to this message when no method-specific message is present |
-| `asl.runtime.max-concurrency-exceeded-message-template` | `Method reached max concurrency: %d` | Rejected calls caused by concurrency saturation use this template |
+| Property | Used for | Default | If omitted |
+| --- | --- | --- | --- |
+| `asl.runtime.default-unavailable-message` | Shared fallback message returned when a governed method is disabled and no method-specific message exists | `Method is disabled` | Disabled methods fall back to this message when no method-specific message is present |
+| `asl.runtime.max-concurrency-exceeded-message-template` | Shared rejection message template used when a call is rejected because max concurrency is full | `Method reached max concurrency: %d` | Rejected calls caused by concurrency saturation use this template |
 
 ### Admin Properties
 
@@ -715,118 +715,118 @@ asl:
 
 Core admin properties:
 
-| Property | Default | If omitted |
-| --- | --- | --- |
-| `asl.admin.enabled` | `true` | Admin UI and REST controllers are still registered |
-| `asl.admin.path` | `/asl` | UI stays at `/asl` |
-| `asl.admin.api-path` | `/asl/api` | REST stays at `/asl/api` |
-| `asl.admin.buffer-preview-limit` | `50` | Buffer preview shows up to 50 entries |
+| Property | Used for | Default | If omitted |
+| --- | --- | --- | --- |
+| `asl.admin.enabled` | Turns the admin UI and admin REST surface on or off | `true` | Admin UI and REST controllers are still registered |
+| `asl.admin.path` | Sets the browser path of the admin HTML dashboard | `/asl` | UI stays at `/asl` |
+| `asl.admin.api-path` | Sets the REST base path used by the admin UI and external operators | `/asl/api` | REST stays at `/asl/api` |
+| `asl.admin.buffer-preview-limit` | Limits how many queue buffer entries are returned in preview responses | `50` | Buffer preview shows up to 50 entries |
 
 Dashboard summary properties:
 
-| Property | Default | If omitted |
-| --- | --- | --- |
-| `asl.admin.dashboard.attention-limit` | `8` | Summary returns up to 8 attention items |
-| `asl.admin.dashboard.medium-utilization-percent` | `40` | Medium pressure threshold remains 40% |
-| `asl.admin.dashboard.high-utilization-percent` | `80` | High pressure threshold remains 80% |
+| Property | Used for | Default | If omitted |
+| --- | --- | --- | --- |
+| `asl.admin.dashboard.attention-limit` | Caps how many attention items the summary model returns to the dashboard | `8` | Summary returns up to 8 attention items |
+| `asl.admin.dashboard.medium-utilization-percent` | Defines the utilization percentage where summary pressure becomes medium | `40` | Medium pressure threshold remains 40% |
+| `asl.admin.dashboard.high-utilization-percent` | Defines the utilization percentage where summary pressure becomes high | `80` | High pressure threshold remains 80% |
 
 Dashboard refresh properties:
 
-| Property | Default | If omitted |
-| --- | --- | --- |
-| `asl.admin.dashboard.refresh.live-refresh-enabled` | `true` | Live refresh starts enabled |
-| `asl.admin.dashboard.refresh.live-buffer-enabled` | `true` | Live buffer refresh starts enabled |
-| `asl.admin.dashboard.refresh.default-interval-ms` | `5000` | Auto refresh interval starts at 5 seconds |
-| `asl.admin.dashboard.refresh.interval-options-ms` | `[3000, 5000, 10000, 30000]` | The UI keeps these four interval choices |
-| `asl.admin.dashboard.refresh.change-flash-ms` | `1400` | Change-highlight flash duration stays 1.4 seconds |
-| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | `1600` | Success toasts auto-hide after 1.6 seconds |
-| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | `3200` | Error toasts auto-hide after 3.2 seconds |
+| Property | Used for | Default | If omitted |
+| --- | --- | --- | --- |
+| `asl.admin.dashboard.refresh.live-refresh-enabled` | Decides whether metric refresh starts enabled when the admin page opens | `true` | Live refresh starts enabled |
+| `asl.admin.dashboard.refresh.live-buffer-enabled` | Decides whether buffer refresh starts enabled when the admin page opens | `true` | Live buffer refresh starts enabled |
+| `asl.admin.dashboard.refresh.default-interval-ms` | Sets the initial auto-refresh interval shown and used by the UI timer | `5000` | Auto refresh interval starts at 5 seconds |
+| `asl.admin.dashboard.refresh.interval-options-ms` | Sets the selectable refresh interval values shown in the UI dropdown | `[3000, 5000, 10000, 30000]` | The UI keeps these four interval choices |
+| `asl.admin.dashboard.refresh.change-flash-ms` | Controls how long changed values are visually highlighted after refresh | `1400` | Change-highlight flash duration stays 1.4 seconds |
+| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | Controls how long success feedback stays visible in the admin page | `1600` | Success toasts auto-hide after 1.6 seconds |
+| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | Controls how long error feedback stays visible in the admin page | `3200` | Error toasts auto-hide after 3.2 seconds |
 
 ### `asl.admin.ui.*`
 
 All admin page text is overrideable. If you omit a field, the built-in label remains in place.
 
-| Property | Default |
-| --- | --- |
-| `asl.admin.ui.page-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-description` | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
-| `asl.admin.ui.rest-badge-prefix` | `REST:` |
-| `asl.admin.ui.empty-title` | `No governed services registered` |
-| `asl.admin.ui.empty-description` | `The admin UI is active, but the runtime registry is empty.` |
-| `asl.admin.ui.services-title` | `Services` |
-| `asl.admin.ui.service-search-placeholder` | `Search services` |
-| `asl.admin.ui.service-tab-note` | `Open this service subform` |
-| `asl.admin.ui.service-detail-note` | `Select a method from the left subform list to manage its full details.` |
-| `asl.admin.ui.methods-title` | `Methods` |
-| `asl.admin.ui.all-label` | `All` |
-| `asl.admin.ui.no-parameters-label` | `No parameters` |
-| `asl.admin.ui.running-label` | `RUNNING` |
-| `asl.admin.ui.stopped-label` | `STOPPED` |
-| `asl.admin.ui.sync-mode-label` | `SYNC` |
-| `asl.admin.ui.async-label` | `ASYNC` |
-| `asl.admin.ui.error-label` | `ERROR` |
-| `asl.admin.ui.success-label` | `Success` |
-| `asl.admin.ui.rejected-label` | `Rejected` |
-| `asl.admin.ui.load-label` | `Load` |
-| `asl.admin.ui.peak-in-flight-label` | `Peak In Flight` |
-| `asl.admin.ui.execution-mode-label` | `Execution Mode` |
-| `asl.admin.ui.consumer-threads-label` | `Consumer Threads` |
-| `asl.admin.ui.last-error-label` | `Last Error` |
-| `asl.admin.ui.none-label` | `none` |
-| `asl.admin.ui.method-state-title` | `Method State` |
-| `asl.admin.ui.start-method-label` | `Start Method` |
-| `asl.admin.ui.stop-method-label` | `Stop Method` |
-| `asl.admin.ui.disable-placeholder` | `Reason shown to callers` |
-| `asl.admin.ui.method-state-hint` | `Stopping a method returns the configured message to incoming callers.` |
-| `asl.admin.ui.sync-concurrency-title` | `Sync Concurrency` |
-| `asl.admin.ui.update-limit-label` | `Update Limit` |
-| `asl.admin.ui.sync-concurrency-hint` | `Defines how many concurrent executions are allowed for this method.` |
-| `asl.admin.ui.async-controls-title` | `Async Controls` |
-| `asl.admin.ui.apply-mode-label` | `Apply` |
-| `asl.admin.ui.update-consumers-label` | `Update` |
-| `asl.admin.ui.async-hint` | `Use async mode only for methods designed to be safely queued and consumed later.` |
-| `asl.admin.ui.queue-buffer-title` | `Queue Buffer` |
-| `asl.admin.ui.load-overview-title` | `Load Overview` |
-| `asl.admin.ui.no-buffer-message` | `No buffer provider is currently attached to this method.` |
-| `asl.admin.ui.clear-buffer-label` | `Clear Buffer` |
-| `asl.admin.ui.replay-entry-label` | `Replay Entry` |
-| `asl.admin.ui.delete-entry-label` | `Delete Entry` |
-| `asl.admin.ui.processed-label` | `Processed` |
-| `asl.admin.ui.active-work-label` | `Active Work` |
-| `asl.admin.ui.queue-depth-label` | `Queue Depth` |
-| `asl.admin.ui.utilization-label` | `Utilization` |
-| `asl.admin.ui.work-pressure-label` | `Work Pressure` |
-| `asl.admin.ui.worker-capacity-label` | `Worker Capacity` |
-| `asl.admin.ui.live-refresh-label` | `Live Refresh` |
-| `asl.admin.ui.refresh-now-label` | `Refresh Now` |
-| `asl.admin.ui.refresh-interval-label` | `Refresh Interval` |
-| `asl.admin.ui.refresh-buffer-label` | `Refresh Buffer` |
-| `asl.admin.ui.live-buffer-label` | `Live Buffer` |
-| `asl.admin.ui.scroll-top-label` | `Top` |
-| `asl.admin.ui.scroll-bottom-label` | `Bottom` |
-| `asl.admin.ui.ready-status-label` | `Ready` |
-| `asl.admin.ui.applying-change-message` | `Applying change...` |
-| `asl.admin.ui.change-applied-message` | `Change applied` |
-| `asl.admin.ui.request-failed-message` | `Request failed` |
-| `asl.admin.ui.refreshing-metrics-message` | `Refreshing live metrics...` |
-| `asl.admin.ui.metrics-refreshed-message` | `Metrics refreshed` |
-| `asl.admin.ui.refreshing-buffer-message` | `Refreshing buffer...` |
-| `asl.admin.ui.buffer-refreshed-message` | `Buffer refreshed` |
-| `asl.admin.ui.entry-id-label` | `Entry Id` |
-| `asl.admin.ui.attempts-label` | `Attempts` |
-| `asl.admin.ui.codec-label` | `Codec` |
-| `asl.admin.ui.payload-type-label` | `Payload Type` |
-| `asl.admin.ui.payload-version-label` | `Payload Version` |
-| `asl.admin.ui.error-type-label` | `Error Type` |
-| `asl.admin.ui.error-category-label` | `Error Category` |
-| `asl.admin.ui.methods-count-suffix` | `methods` |
-| `asl.admin.ui.async-capable-suffix` | `async-capable` |
-| `asl.admin.ui.stopped-suffix` | `stopped` |
-| `asl.admin.ui.methods-with-errors-suffix` | `with errors` |
-| `asl.admin.ui.pending-label` | `Pending` |
-| `asl.admin.ui.failed-label` | `Failed` |
-| `asl.admin.ui.in-progress-label` | `In progress` |
+| Property | Used for | Default |
+| --- | --- | --- |
+| `asl.admin.ui.page-title` | Browser title and top-level page naming | `ASL Control Plane` |
+| `asl.admin.ui.hero-title` | Main hero title at the top of the admin page | `ASL Control Plane` |
+| `asl.admin.ui.hero-description` | Introductory description text under the hero title | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
+| `asl.admin.ui.rest-badge-prefix` | Prefix shown before the admin REST base path badge | `REST:` |
+| `asl.admin.ui.empty-title` | Empty-state title when no governed services are registered | `No governed services registered` |
+| `asl.admin.ui.empty-description` | Empty-state helper text when the registry is empty | `The admin UI is active, but the runtime registry is empty.` |
+| `asl.admin.ui.services-title` | Services section title | `Services` |
+| `asl.admin.ui.service-search-placeholder` | Placeholder text in the service search box | `Search services` |
+| `asl.admin.ui.service-tab-note` | Small note shown in service cards/tabs | `Open this service subform` |
+| `asl.admin.ui.service-detail-note` | Helper text shown when no method is selected yet | `Select a method from the left subform list to manage its full details.` |
+| `asl.admin.ui.methods-title` | Methods section title | `Methods` |
+| `asl.admin.ui.all-label` | Generic label for the unfiltered state | `All` |
+| `asl.admin.ui.no-parameters-label` | Label for methods that take no parameters | `No parameters` |
+| `asl.admin.ui.running-label` | Status label for running methods | `RUNNING` |
+| `asl.admin.ui.stopped-label` | Status label for stopped methods | `STOPPED` |
+| `asl.admin.ui.sync-mode-label` | Label for synchronous execution mode | `SYNC` |
+| `asl.admin.ui.async-label` | Label for async state, async mode, or async capability | `ASYNC` |
+| `asl.admin.ui.error-label` | Label for error-focused filters or states | `ERROR` |
+| `asl.admin.ui.success-label` | Label for successful executions/statistics | `Success` |
+| `asl.admin.ui.rejected-label` | Label for rejected calls/statistics | `Rejected` |
+| `asl.admin.ui.load-label` | Label for load or traffic indicators | `Load` |
+| `asl.admin.ui.peak-in-flight-label` | Label for peak concurrent in-flight work | `Peak In Flight` |
+| `asl.admin.ui.execution-mode-label` | Label above mode switching controls | `Execution Mode` |
+| `asl.admin.ui.consumer-threads-label` | Label above consumer thread controls | `Consumer Threads` |
+| `asl.admin.ui.last-error-label` | Label for the last recorded error field | `Last Error` |
+| `asl.admin.ui.none-label` | Fallback text when no value exists | `none` |
+| `asl.admin.ui.method-state-title` | Title of the method enable/disable card | `Method State` |
+| `asl.admin.ui.start-method-label` | Button label for enabling a method | `Start Method` |
+| `asl.admin.ui.stop-method-label` | Button label for disabling a method | `Stop Method` |
+| `asl.admin.ui.disable-placeholder` | Placeholder text for the disable reason input | `Reason shown to callers` |
+| `asl.admin.ui.method-state-hint` | Helper hint under the method state controls | `Stopping a method returns the configured message to incoming callers.` |
+| `asl.admin.ui.sync-concurrency-title` | Title of the sync concurrency card | `Sync Concurrency` |
+| `asl.admin.ui.update-limit-label` | Button label for applying a concurrency update | `Update Limit` |
+| `asl.admin.ui.sync-concurrency-hint` | Helper text explaining what max concurrency controls | `Defines how many concurrent executions are allowed for this method.` |
+| `asl.admin.ui.async-controls-title` | Title of the async controls card | `Async Controls` |
+| `asl.admin.ui.apply-mode-label` | Generic apply label used by mode change actions | `Apply` |
+| `asl.admin.ui.update-consumers-label` | Button label for updating consumer threads | `Update` |
+| `asl.admin.ui.async-hint` | Helper text explaining safe async usage | `Use async mode only for methods designed to be safely queued and consumed later.` |
+| `asl.admin.ui.queue-buffer-title` | Title of the queue buffer card | `Queue Buffer` |
+| `asl.admin.ui.load-overview-title` | Title of the load overview card | `Load Overview` |
+| `asl.admin.ui.no-buffer-message` | Message shown when a method has no attached buffer provider | `No buffer provider is currently attached to this method.` |
+| `asl.admin.ui.clear-buffer-label` | Button label for clearing the buffer | `Clear Buffer` |
+| `asl.admin.ui.replay-entry-label` | Button label for replaying a failed entry | `Replay Entry` |
+| `asl.admin.ui.delete-entry-label` | Button label for deleting a buffered entry | `Delete Entry` |
+| `asl.admin.ui.processed-label` | Label for processed count/statistics | `Processed` |
+| `asl.admin.ui.active-work-label` | Label for currently active work count | `Active Work` |
+| `asl.admin.ui.queue-depth-label` | Label for queued item count | `Queue Depth` |
+| `asl.admin.ui.utilization-label` | Label for utilization percentage | `Utilization` |
+| `asl.admin.ui.work-pressure-label` | Label for pressure summary | `Work Pressure` |
+| `asl.admin.ui.worker-capacity-label` | Label for effective worker capacity | `Worker Capacity` |
+| `asl.admin.ui.live-refresh-label` | Label next to the live refresh toggle | `Live Refresh` |
+| `asl.admin.ui.refresh-now-label` | Button label for immediate manual refresh | `Refresh Now` |
+| `asl.admin.ui.refresh-interval-label` | Label for the refresh interval selector | `Refresh Interval` |
+| `asl.admin.ui.refresh-buffer-label` | Label for buffer refresh actions | `Refresh Buffer` |
+| `asl.admin.ui.live-buffer-label` | Label next to the live buffer toggle | `Live Buffer` |
+| `asl.admin.ui.scroll-top-label` | Button label for scrolling a panel to the top | `Top` |
+| `asl.admin.ui.scroll-bottom-label` | Button label for scrolling a panel to the bottom | `Bottom` |
+| `asl.admin.ui.ready-status-label` | Default ready-state label in status feedback | `Ready` |
+| `asl.admin.ui.applying-change-message` | Status message shown while a change request is in flight | `Applying change...` |
+| `asl.admin.ui.change-applied-message` | Status message shown after a successful change | `Change applied` |
+| `asl.admin.ui.request-failed-message` | Status message shown after a failed request | `Request failed` |
+| `asl.admin.ui.refreshing-metrics-message` | Status message shown while metrics refresh is running | `Refreshing live metrics...` |
+| `asl.admin.ui.metrics-refreshed-message` | Status message shown after metrics refresh completes | `Metrics refreshed` |
+| `asl.admin.ui.refreshing-buffer-message` | Status message shown while buffer refresh is running | `Refreshing buffer...` |
+| `asl.admin.ui.buffer-refreshed-message` | Status message shown after buffer refresh completes | `Buffer refreshed` |
+| `asl.admin.ui.entry-id-label` | Label for queue buffer entry ids | `Entry Id` |
+| `asl.admin.ui.attempts-label` | Label for execution attempt count | `Attempts` |
+| `asl.admin.ui.codec-label` | Label for payload codec information | `Codec` |
+| `asl.admin.ui.payload-type-label` | Label for stored payload type metadata | `Payload Type` |
+| `asl.admin.ui.payload-version-label` | Label for stored payload schema version | `Payload Version` |
+| `asl.admin.ui.error-type-label` | Label for the technical error type field | `Error Type` |
+| `asl.admin.ui.error-category-label` | Label for the normalized error category field | `Error Category` |
+| `asl.admin.ui.methods-count-suffix` | Suffix used in service cards for method count | `methods` |
+| `asl.admin.ui.async-capable-suffix` | Suffix used in service cards for async-capable count | `async-capable` |
+| `asl.admin.ui.stopped-suffix` | Suffix used in service cards for stopped count | `stopped` |
+| `asl.admin.ui.methods-with-errors-suffix` | Suffix used in service cards for methods with errors | `with errors` |
+| `asl.admin.ui.pending-label` | Label for pending queue count | `Pending` |
+| `asl.admin.ui.failed-label` | Label for failed queue count | `Failed` |
+| `asl.admin.ui.in-progress-label` | Label for in-progress queue count | `In progress` |
 
 ### `asl.admin.services.*`
 
@@ -855,13 +855,13 @@ If you omit this entire block:
 
 Supported per-method overrides:
 
-| Property | If omitted |
-| --- | --- |
-| `asl.admin.services.<serviceId>.methods.<methodId>.enabled` | Uses `@GovernedMethod(initiallyEnabled)`; default `true` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.max-concurrency` | Uses `@GovernedMethod(initialMaxConcurrency)`; default `Integer.MAX_VALUE` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.unavailable-message` | Uses `@GovernedMethod(unavailableMessage)`; if blank, falls back to `asl.runtime.default-unavailable-message` when disabled |
-| `asl.admin.services.<serviceId>.methods.<methodId>.execution-mode` | Starts in `SYNC` unless explicitly overridden or changed at runtime |
-| `asl.admin.services.<serviceId>.methods.<methodId>.consumer-threads` | Uses `@GovernedMethod(initialConsumerThreads)`; default `1` |
+| Property | Used for | If omitted |
+| --- | --- | --- |
+| `asl.admin.services.<serviceId>.methods.<methodId>.enabled` | Sets whether the method starts enabled or disabled at application startup | Uses `@GovernedMethod(initiallyEnabled)`; default `true` |
+| `asl.admin.services.<serviceId>.methods.<methodId>.max-concurrency` | Sets the startup max concurrency for a specific method | Uses `@GovernedMethod(initialMaxConcurrency)`; default `Integer.MAX_VALUE` |
+| `asl.admin.services.<serviceId>.methods.<methodId>.unavailable-message` | Sets the startup unavailable message returned when that method is disabled | Uses `@GovernedMethod(unavailableMessage)`; if blank, falls back to `asl.runtime.default-unavailable-message` when disabled |
+| `asl.admin.services.<serviceId>.methods.<methodId>.execution-mode` | Sets the startup execution mode for a specific method | Starts in `SYNC` unless explicitly overridden or changed at runtime |
+| `asl.admin.services.<serviceId>.methods.<methodId>.consumer-threads` | Sets the startup consumer thread count for an async-capable method | Uses `@GovernedMethod(initialConsumerThreads)`; default `1` |
 
 ### MapDB Async Properties
 
@@ -882,19 +882,19 @@ asl:
       reset-if-corrupt: true
 ```
 
-| Property | Default | If omitted |
-| --- | --- | --- |
-| `asl.async.mapdb.enabled` | `false` | No MapDB async engine is created |
-| `asl.async.mapdb.path` | `./data/asl-queue.db` | Queue file stays under `./data/asl-queue.db` when enabled |
-| `asl.async.mapdb.codec` | `java-object-stream` | Java object stream codec is used |
-| `asl.async.mapdb.worker-shutdown-await-millis` | `10000` | Worker shutdown waits up to 10 seconds |
-| `asl.async.mapdb.registration-idle-sleep-millis` | `100` | Workers back off 100 ms when a lane is not yet registered |
-| `asl.async.mapdb.empty-queue-sleep-millis` | `50` | Workers back off 50 ms when the queue is empty |
-| `asl.async.mapdb.requeue-delay-millis` | `75` | Workers back off 75 ms after requeue due to full concurrency |
-| `asl.async.mapdb.recovered-in-progress-message` | `Recovered stale in-progress invocation after restart` | This message is written when stale in-progress work is recovered |
-| `asl.async.mapdb.transactions-enabled` | `true` | Transactional writes remain enabled |
-| `asl.async.mapdb.memory-mapped-enabled` | `false` | Memory-mapped IO stays off |
-| `asl.async.mapdb.reset-if-corrupt` | `false` | Recoverable store corruption fails startup instead of resetting/falling back |
+| Property | Used for | Default | If omitted |
+| --- | --- | --- | --- |
+| `asl.async.mapdb.enabled` | Turns the embedded MapDB async execution engine on or off | `false` | No MapDB async engine is created |
+| `asl.async.mapdb.path` | Sets the persistence file path for the queue store | `./data/asl-queue.db` | Queue file stays under `./data/asl-queue.db` when enabled |
+| `asl.async.mapdb.codec` | Chooses the payload serialization codec used for queued items | `java-object-stream` | Java object stream codec is used |
+| `asl.async.mapdb.worker-shutdown-await-millis` | Controls how long shutdown waits for async workers to finish | `10000` | Worker shutdown waits up to 10 seconds |
+| `asl.async.mapdb.registration-idle-sleep-millis` | Worker backoff time when a lane is not registered yet | `100` | Workers back off 100 ms when a lane is not yet registered |
+| `asl.async.mapdb.empty-queue-sleep-millis` | Worker backoff time when the queue is currently empty | `50` | Workers back off 50 ms when the queue is empty |
+| `asl.async.mapdb.requeue-delay-millis` | Worker backoff time after a requeue caused by full concurrency | `75` | Workers back off 75 ms after requeue due to full concurrency |
+| `asl.async.mapdb.recovered-in-progress-message` | Message recorded when stale in-progress work is recovered after restart | `Recovered stale in-progress invocation after restart` | This message is written when stale in-progress work is recovered |
+| `asl.async.mapdb.transactions-enabled` | Enables transactional MapDB writes for durability | `true` | Transactional writes remain enabled |
+| `asl.async.mapdb.memory-mapped-enabled` | Enables memory-mapped file access for the MapDB store | `false` | Memory-mapped IO stays off |
+| `asl.async.mapdb.reset-if-corrupt` | Allows startup recovery/reset instead of failing hard on recoverable store corruption | `false` | Recoverable store corruption fails startup instead of resetting/falling back |
 
 ### Payload Codec
 

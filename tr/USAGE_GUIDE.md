@@ -479,127 +479,127 @@ Sadece bagimliliklari, annotation processor'u ve governed annotation'lari eklers
 
 ### `asl.runtime.*`
 
-| Property | Default | Set edilmezse |
-| --- | --- | --- |
-| `asl.runtime.default-unavailable-message` | `Method is disabled` | Method'a ozel mesaj yoksa disable durumunda bu mesaj kullanilir |
-| `asl.runtime.max-concurrency-exceeded-message-template` | `Method reached max concurrency: %d` | Concurrency doluysa reject edilen cagrilarda bu sablon kullanilir |
+| Property | Ne icin kullanilir | Default | Set edilmezse |
+| --- | --- | --- | --- |
+| `asl.runtime.default-unavailable-message` | Method disable durumunda, method'a ozel mesaj yoksa dondurulen ortak fallback mesajidir | `Method is disabled` | Method'a ozel mesaj yoksa disable durumunda bu mesaj kullanilir |
+| `asl.runtime.max-concurrency-exceeded-message-template` | Max concurrency doldugunda reject edilen cagrilar icin kullanilan ortak mesaj sablonudur | `Method reached max concurrency: %d` | Concurrency doluysa reject edilen cagrilarda bu sablon kullanilir |
 
 ### `asl.admin.*`
 
 Temel admin property'leri:
 
-| Property | Default | Set edilmezse |
-| --- | --- | --- |
-| `asl.admin.enabled` | `true` | Admin UI ve REST controller'lari yine kaydolur |
-| `asl.admin.path` | `/asl` | UI `/asl` altinda kalir |
-| `asl.admin.api-path` | `/asl/api` | REST `/asl/api` altinda kalir |
-| `asl.admin.buffer-preview-limit` | `50` | Buffer onizleme en fazla 50 kayit gosterir |
+| Property | Ne icin kullanilir | Default | Set edilmezse |
+| --- | --- | --- | --- |
+| `asl.admin.enabled` | Admin UI ve admin REST yuzeyini acip kapatir | `true` | Admin UI ve REST controller'lari yine kaydolur |
+| `asl.admin.path` | Admin HTML arayuzunun tarayici yolunu belirler | `/asl` | UI `/asl` altinda kalir |
+| `asl.admin.api-path` | Admin UI ve operatorler tarafindan kullanilan REST base path'ini belirler | `/asl/api` | REST `/asl/api` altinda kalir |
+| `asl.admin.buffer-preview-limit` | Buffer preview cevaplarinda donen kayit sayisini sinirlar | `50` | Buffer onizleme en fazla 50 kayit gosterir |
 
 Dashboard summary property'leri:
 
-| Property | Default | Set edilmezse |
-| --- | --- | --- |
-| `asl.admin.dashboard.attention-limit` | `8` | Summary en fazla 8 attention item dondurur |
-| `asl.admin.dashboard.medium-utilization-percent` | `40` | Medium pressure esigi %40 olarak kalir |
-| `asl.admin.dashboard.high-utilization-percent` | `80` | High pressure esigi %80 olarak kalir |
+| Property | Ne icin kullanilir | Default | Set edilmezse |
+| --- | --- | --- | --- |
+| `asl.admin.dashboard.attention-limit` | Dashboard summary modelinde dondurulen attention item sayisini sinirlar | `8` | Summary en fazla 8 attention item dondurur |
+| `asl.admin.dashboard.medium-utilization-percent` | Summary pressure'in medium olacagi utilization esigini belirler | `40` | Medium pressure esigi %40 olarak kalir |
+| `asl.admin.dashboard.high-utilization-percent` | Summary pressure'in high olacagi utilization esigini belirler | `80` | High pressure esigi %80 olarak kalir |
 
 Dashboard refresh property'leri:
 
-| Property | Default | Set edilmezse |
-| --- | --- | --- |
-| `asl.admin.dashboard.refresh.live-refresh-enabled` | `true` | Live refresh acik baslar |
-| `asl.admin.dashboard.refresh.live-buffer-enabled` | `true` | Live buffer refresh acik baslar |
-| `asl.admin.dashboard.refresh.default-interval-ms` | `5000` | Auto refresh 5 saniye ile baslar |
-| `asl.admin.dashboard.refresh.interval-options-ms` | `[3000, 5000, 10000, 30000]` | UI bu dort refresh secenegiyle gelir |
-| `asl.admin.dashboard.refresh.change-flash-ms` | `1400` | Degisim highlight suresi 1.4 saniye olur |
-| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | `1600` | Basari mesaji 1.6 saniyede kaybolur |
-| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | `3200` | Hata mesaji 3.2 saniyede kaybolur |
+| Property | Ne icin kullanilir | Default | Set edilmezse |
+| --- | --- | --- | --- |
+| `asl.admin.dashboard.refresh.live-refresh-enabled` | Admin sayfasi acildiginda metric refresh'in acik baslayip baslamayacagini belirler | `true` | Live refresh acik baslar |
+| `asl.admin.dashboard.refresh.live-buffer-enabled` | Admin sayfasi acildiginda buffer refresh'in acik baslayip baslamayacagini belirler | `true` | Live buffer refresh acik baslar |
+| `asl.admin.dashboard.refresh.default-interval-ms` | UI timer'inin ilk auto-refresh araligini belirler | `5000` | Auto refresh 5 saniye ile baslar |
+| `asl.admin.dashboard.refresh.interval-options-ms` | UI'da secilebilir refresh araliklarini belirler | `[3000, 5000, 10000, 30000]` | UI bu dort refresh secenegiyle gelir |
+| `asl.admin.dashboard.refresh.change-flash-ms` | Refresh sonrasi degisen alanlarin ne kadar sure highlight olacagini belirler | `1400` | Degisim highlight suresi 1.4 saniye olur |
+| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | Basari mesajlarinin ne kadar sure sonra gizlenecegini belirler | `1600` | Basari mesaji 1.6 saniyede kaybolur |
+| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | Hata mesajlarinin ne kadar sure sonra gizlenecegini belirler | `3200` | Hata mesaji 3.2 saniyede kaybolur |
 
 ### `asl.admin.ui.*`
 
 Admin sayfasindaki tum metinler override edilebilir. Bir alan set edilmezse yerlesik varsayilan metin kullanilir.
 
-| Property | Default |
-| --- | --- |
-| `asl.admin.ui.page-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-description` | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
-| `asl.admin.ui.rest-badge-prefix` | `REST:` |
-| `asl.admin.ui.empty-title` | `No governed services registered` |
-| `asl.admin.ui.empty-description` | `The admin UI is active, but the runtime registry is empty.` |
-| `asl.admin.ui.services-title` | `Services` |
-| `asl.admin.ui.service-search-placeholder` | `Search services` |
-| `asl.admin.ui.service-tab-note` | `Open this service subform` |
-| `asl.admin.ui.service-detail-note` | `Select a method from the left subform list to manage its full details.` |
-| `asl.admin.ui.methods-title` | `Methods` |
-| `asl.admin.ui.all-label` | `All` |
-| `asl.admin.ui.no-parameters-label` | `No parameters` |
-| `asl.admin.ui.running-label` | `RUNNING` |
-| `asl.admin.ui.stopped-label` | `STOPPED` |
-| `asl.admin.ui.sync-mode-label` | `SYNC` |
-| `asl.admin.ui.async-label` | `ASYNC` |
-| `asl.admin.ui.error-label` | `ERROR` |
-| `asl.admin.ui.success-label` | `Success` |
-| `asl.admin.ui.rejected-label` | `Rejected` |
-| `asl.admin.ui.load-label` | `Load` |
-| `asl.admin.ui.peak-in-flight-label` | `Peak In Flight` |
-| `asl.admin.ui.execution-mode-label` | `Execution Mode` |
-| `asl.admin.ui.consumer-threads-label` | `Consumer Threads` |
-| `asl.admin.ui.last-error-label` | `Last Error` |
-| `asl.admin.ui.none-label` | `none` |
-| `asl.admin.ui.method-state-title` | `Method State` |
-| `asl.admin.ui.start-method-label` | `Start Method` |
-| `asl.admin.ui.stop-method-label` | `Stop Method` |
-| `asl.admin.ui.disable-placeholder` | `Reason shown to callers` |
-| `asl.admin.ui.method-state-hint` | `Stopping a method returns the configured message to incoming callers.` |
-| `asl.admin.ui.sync-concurrency-title` | `Sync Concurrency` |
-| `asl.admin.ui.update-limit-label` | `Update Limit` |
-| `asl.admin.ui.sync-concurrency-hint` | `Defines how many concurrent executions are allowed for this method.` |
-| `asl.admin.ui.async-controls-title` | `Async Controls` |
-| `asl.admin.ui.apply-mode-label` | `Apply` |
-| `asl.admin.ui.update-consumers-label` | `Update` |
-| `asl.admin.ui.async-hint` | `Use async mode only for methods designed to be safely queued and consumed later.` |
-| `asl.admin.ui.queue-buffer-title` | `Queue Buffer` |
-| `asl.admin.ui.load-overview-title` | `Load Overview` |
-| `asl.admin.ui.no-buffer-message` | `No buffer provider is currently attached to this method.` |
-| `asl.admin.ui.clear-buffer-label` | `Clear Buffer` |
-| `asl.admin.ui.replay-entry-label` | `Replay Entry` |
-| `asl.admin.ui.delete-entry-label` | `Delete Entry` |
-| `asl.admin.ui.processed-label` | `Processed` |
-| `asl.admin.ui.active-work-label` | `Active Work` |
-| `asl.admin.ui.queue-depth-label` | `Queue Depth` |
-| `asl.admin.ui.utilization-label` | `Utilization` |
-| `asl.admin.ui.work-pressure-label` | `Work Pressure` |
-| `asl.admin.ui.worker-capacity-label` | `Worker Capacity` |
-| `asl.admin.ui.live-refresh-label` | `Live Refresh` |
-| `asl.admin.ui.refresh-now-label` | `Refresh Now` |
-| `asl.admin.ui.refresh-interval-label` | `Refresh Interval` |
-| `asl.admin.ui.refresh-buffer-label` | `Refresh Buffer` |
-| `asl.admin.ui.live-buffer-label` | `Live Buffer` |
-| `asl.admin.ui.scroll-top-label` | `Top` |
-| `asl.admin.ui.scroll-bottom-label` | `Bottom` |
-| `asl.admin.ui.ready-status-label` | `Ready` |
-| `asl.admin.ui.applying-change-message` | `Applying change...` |
-| `asl.admin.ui.change-applied-message` | `Change applied` |
-| `asl.admin.ui.request-failed-message` | `Request failed` |
-| `asl.admin.ui.refreshing-metrics-message` | `Refreshing live metrics...` |
-| `asl.admin.ui.metrics-refreshed-message` | `Metrics refreshed` |
-| `asl.admin.ui.refreshing-buffer-message` | `Refreshing buffer...` |
-| `asl.admin.ui.buffer-refreshed-message` | `Buffer refreshed` |
-| `asl.admin.ui.entry-id-label` | `Entry Id` |
-| `asl.admin.ui.attempts-label` | `Attempts` |
-| `asl.admin.ui.codec-label` | `Codec` |
-| `asl.admin.ui.payload-type-label` | `Payload Type` |
-| `asl.admin.ui.payload-version-label` | `Payload Version` |
-| `asl.admin.ui.error-type-label` | `Error Type` |
-| `asl.admin.ui.error-category-label` | `Error Category` |
-| `asl.admin.ui.methods-count-suffix` | `methods` |
-| `asl.admin.ui.async-capable-suffix` | `async-capable` |
-| `asl.admin.ui.stopped-suffix` | `stopped` |
-| `asl.admin.ui.methods-with-errors-suffix` | `with errors` |
-| `asl.admin.ui.pending-label` | `Pending` |
-| `asl.admin.ui.failed-label` | `Failed` |
-| `asl.admin.ui.in-progress-label` | `In progress` |
+| Property | Ne icin kullanilir | Default |
+| --- | --- | --- |
+| `asl.admin.ui.page-title` | Tarayici sekme basligi ve sayfa ust ismi | `ASL Control Plane` |
+| `asl.admin.ui.hero-title` | Admin sayfasinin ust kahraman basligi | `ASL Control Plane` |
+| `asl.admin.ui.hero-description` | Hero basliginin altindaki aciklayici giris metni | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
+| `asl.admin.ui.rest-badge-prefix` | Admin REST path badge'i onundeki on ek | `REST:` |
+| `asl.admin.ui.empty-title` | Governed servis yoksa gorunen bos durum basligi | `No governed services registered` |
+| `asl.admin.ui.empty-description` | Registry bos oldugunda gorunen yardimci metin | `The admin UI is active, but the runtime registry is empty.` |
+| `asl.admin.ui.services-title` | Services bolumu basligi | `Services` |
+| `asl.admin.ui.service-search-placeholder` | Service arama kutusundaki placeholder metni | `Search services` |
+| `asl.admin.ui.service-tab-note` | Service kartlari/sekmelerindeki kucuk aciklama notu | `Open this service subform` |
+| `asl.admin.ui.service-detail-note` | Henuz method secilmediginde gorunen yardimci metin | `Select a method from the left subform list to manage its full details.` |
+| `asl.admin.ui.methods-title` | Methods bolumu basligi | `Methods` |
+| `asl.admin.ui.all-label` | Filtersiz durum icin kullanilan genel etiket | `All` |
+| `asl.admin.ui.no-parameters-label` | Parametre almayan methodlar icin etiket | `No parameters` |
+| `asl.admin.ui.running-label` | Calisan method durumu etiketi | `RUNNING` |
+| `asl.admin.ui.stopped-label` | Durdurulmus method durumu etiketi | `STOPPED` |
+| `asl.admin.ui.sync-mode-label` | Senkron execution mode etiketi | `SYNC` |
+| `asl.admin.ui.async-label` | Async durum, mode veya capability etiketi | `ASYNC` |
+| `asl.admin.ui.error-label` | Hata odakli filtre veya durum etiketi | `ERROR` |
+| `asl.admin.ui.success-label` | Basarili execution/istatistik etiketi | `Success` |
+| `asl.admin.ui.rejected-label` | Reject edilen cagrilar/istatistikler icin etiket | `Rejected` |
+| `asl.admin.ui.load-label` | Load veya trafik gostergeleri icin etiket | `Load` |
+| `asl.admin.ui.peak-in-flight-label` | Es zamanli peak in-flight is sayisi etiketi | `Peak In Flight` |
+| `asl.admin.ui.execution-mode-label` | Mode degistirme kontrolleri ustundeki etiket | `Execution Mode` |
+| `asl.admin.ui.consumer-threads-label` | Consumer thread kontrolu ustundeki etiket | `Consumer Threads` |
+| `asl.admin.ui.last-error-label` | Son kaydedilen hata alani etiketi | `Last Error` |
+| `asl.admin.ui.none-label` | Deger olmadiginda kullanilan fallback metin | `none` |
+| `asl.admin.ui.method-state-title` | Method enable/disable karti basligi | `Method State` |
+| `asl.admin.ui.start-method-label` | Method enable etme butonu etiketi | `Start Method` |
+| `asl.admin.ui.stop-method-label` | Method disable etme butonu etiketi | `Stop Method` |
+| `asl.admin.ui.disable-placeholder` | Disable reason input placeholder metni | `Reason shown to callers` |
+| `asl.admin.ui.method-state-hint` | Method state kontrolleri altindaki yardimci ipucu | `Stopping a method returns the configured message to incoming callers.` |
+| `asl.admin.ui.sync-concurrency-title` | Sync concurrency karti basligi | `Sync Concurrency` |
+| `asl.admin.ui.update-limit-label` | Concurrency guncelleme butonu etiketi | `Update Limit` |
+| `asl.admin.ui.sync-concurrency-hint` | Max concurrency'nin neyi kontrol ettigini anlatan yardimci metin | `Defines how many concurrent executions are allowed for this method.` |
+| `asl.admin.ui.async-controls-title` | Async controls karti basligi | `Async Controls` |
+| `asl.admin.ui.apply-mode-label` | Mode degisikligi aksiyonlarinda kullanilan genel apply etiketi | `Apply` |
+| `asl.admin.ui.update-consumers-label` | Consumer thread guncelleme butonu etiketi | `Update` |
+| `asl.admin.ui.async-hint` | Guvenli async kullanimini aciklayan yardimci metin | `Use async mode only for methods designed to be safely queued and consumed later.` |
+| `asl.admin.ui.queue-buffer-title` | Queue buffer karti basligi | `Queue Buffer` |
+| `asl.admin.ui.load-overview-title` | Load overview karti basligi | `Load Overview` |
+| `asl.admin.ui.no-buffer-message` | Method'a buffer provider bagli degilse gorunen mesaj | `No buffer provider is currently attached to this method.` |
+| `asl.admin.ui.clear-buffer-label` | Buffer temizleme butonu etiketi | `Clear Buffer` |
+| `asl.admin.ui.replay-entry-label` | Failed entry replay butonu etiketi | `Replay Entry` |
+| `asl.admin.ui.delete-entry-label` | Buffer entry silme butonu etiketi | `Delete Entry` |
+| `asl.admin.ui.processed-label` | Processed count/istatistik etiketi | `Processed` |
+| `asl.admin.ui.active-work-label` | O anda aktif is sayisi etiketi | `Active Work` |
+| `asl.admin.ui.queue-depth-label` | Queue item sayisi etiketi | `Queue Depth` |
+| `asl.admin.ui.utilization-label` | Utilization yuzdesi etiketi | `Utilization` |
+| `asl.admin.ui.work-pressure-label` | Pressure ozeti etiketi | `Work Pressure` |
+| `asl.admin.ui.worker-capacity-label` | Efektif worker capacity etiketi | `Worker Capacity` |
+| `asl.admin.ui.live-refresh-label` | Live refresh toggle yanindaki etiket | `Live Refresh` |
+| `asl.admin.ui.refresh-now-label` | Manuel anlik refresh butonu etiketi | `Refresh Now` |
+| `asl.admin.ui.refresh-interval-label` | Refresh interval secici etiketi | `Refresh Interval` |
+| `asl.admin.ui.refresh-buffer-label` | Buffer refresh aksiyon etiketi | `Refresh Buffer` |
+| `asl.admin.ui.live-buffer-label` | Live buffer toggle yanindaki etiket | `Live Buffer` |
+| `asl.admin.ui.scroll-top-label` | Paneli en uste sarmak icin buton etiketi | `Top` |
+| `asl.admin.ui.scroll-bottom-label` | Paneli en alta sarmak icin buton etiketi | `Bottom` |
+| `asl.admin.ui.ready-status-label` | Hazir durumundaki varsayilan status etiketi | `Ready` |
+| `asl.admin.ui.applying-change-message` | Degisiklik istegi giderken gosterilen durum mesaji | `Applying change...` |
+| `asl.admin.ui.change-applied-message` | Basarili degisiklikten sonra gosterilen durum mesaji | `Change applied` |
+| `asl.admin.ui.request-failed-message` | Basarisiz istekten sonra gosterilen durum mesaji | `Request failed` |
+| `asl.admin.ui.refreshing-metrics-message` | Metrics refresh surerken gosterilen durum mesaji | `Refreshing live metrics...` |
+| `asl.admin.ui.metrics-refreshed-message` | Metrics refresh bittiginde gosterilen durum mesaji | `Metrics refreshed` |
+| `asl.admin.ui.refreshing-buffer-message` | Buffer refresh surerken gosterilen durum mesaji | `Refreshing buffer...` |
+| `asl.admin.ui.buffer-refreshed-message` | Buffer refresh bittiginde gosterilen durum mesaji | `Buffer refreshed` |
+| `asl.admin.ui.entry-id-label` | Queue buffer entry id etiketi | `Entry Id` |
+| `asl.admin.ui.attempts-label` | Execution attempt sayisi etiketi | `Attempts` |
+| `asl.admin.ui.codec-label` | Payload codec bilgisi etiketi | `Codec` |
+| `asl.admin.ui.payload-type-label` | Saklanan payload type metadata etiketi | `Payload Type` |
+| `asl.admin.ui.payload-version-label` | Saklanan payload schema version etiketi | `Payload Version` |
+| `asl.admin.ui.error-type-label` | Teknik hata tipi alani etiketi | `Error Type` |
+| `asl.admin.ui.error-category-label` | Normalize edilmis error category etiketi | `Error Category` |
+| `asl.admin.ui.methods-count-suffix` | Service kartlarinda method count suffix'i | `methods` |
+| `asl.admin.ui.async-capable-suffix` | Service kartlarinda async-capable count suffix'i | `async-capable` |
+| `asl.admin.ui.stopped-suffix` | Service kartlarinda stopped count suffix'i | `stopped` |
+| `asl.admin.ui.methods-with-errors-suffix` | Service kartlarinda hata alan method sayisi suffix'i | `with errors` |
+| `asl.admin.ui.pending-label` | Pending queue count etiketi | `Pending` |
+| `asl.admin.ui.failed-label` | Failed queue count etiketi | `Failed` |
+| `asl.admin.ui.in-progress-label` | In-progress queue count etiketi | `In progress` |
 
 ### `asl.admin.services.*`
 
@@ -628,26 +628,26 @@ Bu blok tamamen yoksa:
 
 Method bazli desteklenen override alanlari:
 
-| Property | Set edilmezse |
-| --- | --- |
-| `asl.admin.services.<serviceId>.methods.<methodId>.enabled` | `@GovernedMethod(initiallyEnabled)` kullanilir; default `true` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.max-concurrency` | `@GovernedMethod(initialMaxConcurrency)` kullanilir; default `Integer.MAX_VALUE` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.unavailable-message` | `@GovernedMethod(unavailableMessage)` kullanilir; bossa disable durumunda `asl.runtime.default-unavailable-message` fallback olur |
-| `asl.admin.services.<serviceId>.methods.<methodId>.execution-mode` | Acikca override edilmedikce `SYNC` baslar |
-| `asl.admin.services.<serviceId>.methods.<methodId>.consumer-threads` | `@GovernedMethod(initialConsumerThreads)` kullanilir; default `1` |
+| Property | Ne icin kullanilir | Set edilmezse |
+| --- | --- | --- |
+| `asl.admin.services.<serviceId>.methods.<methodId>.enabled` | Belirli bir method'un startup'ta enable mi disable mi olacagini belirler | `@GovernedMethod(initiallyEnabled)` kullanilir; default `true` |
+| `asl.admin.services.<serviceId>.methods.<methodId>.max-concurrency` | Belirli bir method'un startup max concurrency degerini belirler | `@GovernedMethod(initialMaxConcurrency)` kullanilir; default `Integer.MAX_VALUE` |
+| `asl.admin.services.<serviceId>.methods.<methodId>.unavailable-message` | O method disable oldugunda dondurulecek startup unavailable mesajini belirler | `@GovernedMethod(unavailableMessage)` kullanilir; bossa disable durumunda `asl.runtime.default-unavailable-message` fallback olur |
+| `asl.admin.services.<serviceId>.methods.<methodId>.execution-mode` | Belirli bir method'un startup execution mode'unu belirler | Acikca override edilmedikce `SYNC` baslar |
+| `asl.admin.services.<serviceId>.methods.<methodId>.consumer-threads` | Async-capable bir method icin startup consumer thread sayisini belirler | `@GovernedMethod(initialConsumerThreads)` kullanilir; default `1` |
 
 ### `asl.async.mapdb.*`
 
-| Property | Default | Set edilmezse |
-| --- | --- | --- |
-| `asl.async.mapdb.enabled` | `false` | MapDB async engine olusmaz |
-| `asl.async.mapdb.path` | `./data/asl-queue.db` | Enable ise queue dosyasi bu yolda kalir |
-| `asl.async.mapdb.codec` | `java-object-stream` | Java object stream codec kullanilir |
-| `asl.async.mapdb.worker-shutdown-await-millis` | `10000` | Worker shutdown en fazla 10 saniye bekler |
-| `asl.async.mapdb.registration-idle-sleep-millis` | `100` | Lane register edilmediyse worker 100 ms bekler |
-| `asl.async.mapdb.empty-queue-sleep-millis` | `50` | Queue bossa worker 50 ms bekler |
-| `asl.async.mapdb.requeue-delay-millis` | `75` | Requeue sonrasi worker 75 ms bekler |
-| `asl.async.mapdb.recovered-in-progress-message` | `Recovered stale in-progress invocation after restart` | Recovery yapildiginda bu mesaj yazilir |
-| `asl.async.mapdb.transactions-enabled` | `true` | Transaction yazimlari acik kalir |
-| `asl.async.mapdb.memory-mapped-enabled` | `false` | Memory-mapped IO kapali kalir |
-| `asl.async.mapdb.reset-if-corrupt` | `false` | Recoverable store bozulmasinda reset/fallback yerine startup fail olur |
+| Property | Ne icin kullanilir | Default | Set edilmezse |
+| --- | --- | --- | --- |
+| `asl.async.mapdb.enabled` | Embedded MapDB async execution engine'i acip kapatir | `false` | MapDB async engine olusmaz |
+| `asl.async.mapdb.path` | Queue store persistence dosya yolunu belirler | `./data/asl-queue.db` | Enable ise queue dosyasi bu yolda kalir |
+| `asl.async.mapdb.codec` | Queued item'lar icin kullanilan payload serialization codec'ini belirler | `java-object-stream` | Java object stream codec kullanilir |
+| `asl.async.mapdb.worker-shutdown-await-millis` | Async worker'lar kapanirken ne kadar beklenecegini belirler | `10000` | Worker shutdown en fazla 10 saniye bekler |
+| `asl.async.mapdb.registration-idle-sleep-millis` | Lane henuz register edilmemisse worker backoff suresini belirler | `100` | Lane register edilmediyse worker 100 ms bekler |
+| `asl.async.mapdb.empty-queue-sleep-millis` | Queue bosken worker backoff suresini belirler | `50` | Queue bossa worker 50 ms bekler |
+| `asl.async.mapdb.requeue-delay-millis` | Concurrency dolu oldugu icin requeue olduktan sonraki backoff suresini belirler | `75` | Requeue sonrasi worker 75 ms bekler |
+| `asl.async.mapdb.recovered-in-progress-message` | Restart sonrasi stale in-progress is recover edildiginde yazilacak mesaji belirler | `Recovered stale in-progress invocation after restart` | Recovery yapildiginda bu mesaj yazilir |
+| `asl.async.mapdb.transactions-enabled` | MapDB yazimlarinda transactional durability'i acar | `true` | Transaction yazimlari acik kalir |
+| `asl.async.mapdb.memory-mapped-enabled` | MapDB store icin memory-mapped file access'i acar | `false` | Memory-mapped IO kapali kalir |
+| `asl.async.mapdb.reset-if-corrupt` | Recoverable store corruption durumunda startup reset/fallback yapilsin mi belirler | `false` | Recoverable store bozulmasinda reset/fallback yerine startup fail olur |
