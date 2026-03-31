@@ -29,7 +29,20 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
+      - name: Resolve Project Version
+        id: version
+        shell: bash
+        run: |
+          VERSION="$(mvn -q -DforceStdout help:evaluate -Dexpression=project.version)"
+          echo "project_version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Deploy Packages
+        if: endsWith(steps.version.outputs.project_version, '-SNAPSHOT')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mvn -B -ntp -Ppublic-release deploy
+
+      - name: Skip Non-Snapshot Publish
+        if: ${{ !endsWith(steps.version.outputs.project_version, '-SNAPSHOT') }}
+        run: |
+          echo "Skipping package publish because project version is '${{ steps.version.outputs.project_version }}' and not a SNAPSHOT."
