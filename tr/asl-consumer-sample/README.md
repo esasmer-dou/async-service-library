@@ -114,10 +114,6 @@ Uretilen raporlar yerelde / CI artefact'i olarak yazilir:
 - `reports/mapdb-abuse/`
 - `tr/reports/mapdb-abuse/`
 
-Ayni yipratici suite artik gece calisan CI workflow'u ile de kosulur:
-
-- [mapdb-abuse-nightly.yml](E:\ReactorRepository\async-service-library\.github\workflows\mapdb-abuse-nightly.yml)
-
 ## Chaos / Recovery
 
 Detayli senaryolar:

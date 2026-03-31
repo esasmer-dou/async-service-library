@@ -271,8 +271,7 @@ The same destructive suite now runs in nightly CI:
 
 Related references:
 
-- [BENCHMARK_RUNBOOK.md](E:\ReactorRepository\async-service-library\BENCHMARK_RUNBOOK.md)
-- [ADMIN_CONTROL_PLANE_GUIDE.md](E:\ReactorRepository\async-service-library\ADMIN_CONTROL_PLANE_GUIDE.md)
+- [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\USAGE_GUIDE.md)
 - [reports/README.md](E:\ReactorRepository\async-service-library\reports\README.md)
 
 ## Chaos And Recovery

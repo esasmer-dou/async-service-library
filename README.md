@@ -178,29 +178,7 @@ The consumer sample includes:
 
 - Full usage guide: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\USAGE_GUIDE.md)
 - Turkish documentation index: [tr/README.md](E:\ReactorRepository\async-service-library\tr\README.md)
-- Turkish documentation standards: [tr/DOKUMANTASYON_STANDARTLARI.md](E:\ReactorRepository\async-service-library\tr\DOKUMANTASYON_STANDARTLARI.md)
-- Turkish glossary: [tr/TERIM_SOZLUGU.md](E:\ReactorRepository\async-service-library\tr\TERIM_SOZLUGU.md)
-- English-Turkish mapping: [tr/EN_TR_ESLEME_TABLOSU.md](E:\ReactorRepository\async-service-library\tr\EN_TR_ESLEME_TABLOSU.md)
-- Admin control plane guide: [ADMIN_CONTROL_PLANE_GUIDE.md](E:\ReactorRepository\async-service-library\ADMIN_CONTROL_PLANE_GUIDE.md)
-- Benchmark runbook: [BENCHMARK_RUNBOOK.md](E:\ReactorRepository\async-service-library\BENCHMARK_RUNBOOK.md)
-- Example benchmark reports: [reports/README.md](E:\ReactorRepository\async-service-library\reports\README.md)
-- Benchmark gate workflow: [control-plane-benchmark-gate.yml](E:\ReactorRepository\async-service-library\.github\workflows\control-plane-benchmark-gate.yml)
-- MapDB abuse nightly workflow: [mapdb-abuse-nightly.yml](E:\ReactorRepository\async-service-library\.github\workflows\mapdb-abuse-nightly.yml)
-- Benchmark threshold profiles: [control-plane-benchmark-thresholds.json](E:\ReactorRepository\async-service-library\scripts\control-plane-benchmark-thresholds.json)
-- Benchmark threshold overlay example: [control-plane-benchmark-thresholds.override.example.json](E:\ReactorRepository\async-service-library\scripts\control-plane-benchmark-thresholds.override.example.json)
-- Benchmark profile resolution: [control-plane-benchmark-profile-resolution.json](E:\ReactorRepository\async-service-library\scripts\control-plane-benchmark-profile-resolution.json)
-- Benchmark output renderer: [render-control-plane-benchmark-gate-outputs.ps1](E:\ReactorRepository\async-service-library\scripts\render-control-plane-benchmark-gate-outputs.ps1)
-- Production checklist: [PRODUCTION_HARDENING_CHECKLIST.md](E:\ReactorRepository\async-service-library\PRODUCTION_HARDENING_CHECKLIST.md)
-- Security checklist: [SECURITY_CHECKLIST.md](E:\ReactorRepository\async-service-library\SECURITY_CHECKLIST.md)
-- Operational upgrade runbook: [OPERATIONAL_UPGRADE_RUNBOOK.md](E:\ReactorRepository\async-service-library\OPERATIONAL_UPGRADE_RUNBOOK.md)
-
-Documentation policy:
-
-- new or updated persistent Markdown docs should also be mirrored under `tr/`
-
-Operational validation:
-
-- nightly destructive MapDB abuse suite runs via GitHub Actions and uploads English + Turkish reports as build artifacts
+- Sample application guide: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\asl-consumer-sample\README.md)
 
 ## Public Distribution
 

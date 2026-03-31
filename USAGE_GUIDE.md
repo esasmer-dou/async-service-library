@@ -549,7 +549,7 @@ Built-in Spring option:
 Operational guidance:
 
 - For durable queues, prefer the Jackson codec plus method-specific schema registration.
-- For schema or codec changes, follow [OPERATIONAL_UPGRADE_RUNBOOK.md](E:\ReactorRepository\async-service-library\OPERATIONAL_UPGRADE_RUNBOOK.md).
+- For schema or codec changes, roll them out in a staged manner and validate replay/restart compatibility before production rollout.
 
 Spring Boot behavior:
 
