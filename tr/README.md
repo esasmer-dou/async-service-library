@@ -1,56 +1,101 @@
-# Async Service Library Dokumantasyon Dizini (TR)
+# Async Service Library
 
-Bu dizin, `async-service-library` projesinin Turkce dokumantasyon aynasidir.
+Async Service Library (ASL), servis metotlarini derleme zamaninda yoneten ve Spring Boot control plane uzerinden runtime'da isletebilen bir Java kutuphanesidir.
 
-Amac:
+Bu kutuphane, yalnizca `@Async` seviyesinden daha fazla kontrol isteyen ama her isi bastan harici bir broker platformuna tasimak istemeyen ekipler icin tasarlandi.
 
-- kullanici odakli dokumanlari Turkce sunmak
-- temel kullanim bilgisini Turkce sunmak
+## Ne Saglar
 
-## Dokumantasyon Kurali
+- reflection agirlikli dispatch yerine derleme zamaninda uretilen wrapper'lar
+- runtime'da metot durdurma/baslatma ve concurrency limiti
+- `void` metotlar icin queue tabanli async calisma
+- replay, delete, clear ve consumer-thread kontrolu
+- `/asl` altinda Spring Boot admin arayuzu
+- `/asl/api` altinda REST control plane
 
-Bu repo icin dokumantasyon politikasi:
+## Ne Zaman Uygun
 
-1. Kok dizinde veya alt dizinlerde yeni bir kalici Markdown dokumani eklenirse, `tr/` altinda Turkce karsiligi da eklenmelidir.
-2. Var olan bir dokuman degisirse, Turkce es dokuman da ayni turde guncellenmelidir.
-3. Otomatik uretilen benchmark ozetleri ve operator ciktilari icin mumkun oldugunda Turkce ciktilar da uretilmelidir.
-4. Gecici veya tarihsel snapshot dosyalari birebir cevrilmek zorunda degildir; ancak bunlari uretecek ana dokumanlarin ve ana raporlarin Turkce karsiliklari bulunmalidir.
+ASL su durumlarda iyi oturur:
 
-## Dizin Yapisi
+- belirli servis metotlarini redeploy etmeden yavaslatmak veya durdurmak istiyorsan
+- secili `void` metotlari yonetilebilir async lane'e cevirmek istiyorsan
+- queue depth, failed entry ve pressure bilgisini tek panelden gormek istiyorsan
+- async davranisi uygulama siniri icinde tutmak istiyorsan
 
-- [README.md](E:\ReactorRepository\async-service-library\tr\README.md)
-- [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\tr\USAGE_GUIDE.md)
-- [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\README.md)
-- [asl-consumer-sample/CHAOS_TEST_GUIDE.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\CHAOS_TEST_GUIDE.md)
-- [reports/README.md](E:\ReactorRepository\async-service-library\tr\reports\README.md)
+## Mevcut Sinirlar
 
-## Not
+- runtime async gecisi sadece `void` metotlar icin desteklenir
+- governed interface basina tek Spring stereotype implementasyonu beklenir
+- admin security kutuphane tarafinda otomatik kurulmaz
 
-Bu dizin, repo icindeki Ingilizce kaynak dokumanlarin Turkce karsiliklarini sunar. Teknik ornekler, dosya yollari ve kod bloklari gerektiginde kaynak dokumandaki yapiyla uyumlu tutulur.
+## Hizli Ornek
 
-## Runtime Konfigurasyon Notu
+```java
+@GovernedService(id = "mail.service")
+public interface MailService {
+    @GovernedMethod(initialMaxConcurrency = 4)
+    String send(String payload);
 
-Kutudan ciktigi haliyle gelen runtime davranislari artik property tabanlidir. Varsayilanlar korunur; ancak:
+    @GovernedMethod(asyncCapable = true, initialMaxConcurrency = 2, initialConsumerThreads = 0)
+    void publish(String event);
+}
+```
 
-- runtime unavailable / concurrency mesajlari
-- admin dashboard attention ve utilization esikleri
-- live refresh ve buffer refresh zamanlamalari
-- MapDB worker pacing ve startup recovery mesajlari
+```java
+@Service
+public class MailServiceImpl implements MailService {
+    @Override
+    public String send(String payload) {
+        return "sent:" + payload;
+    }
 
-uygulama property'leri ile disaridan degistirilebilir.
+    @Override
+    public void publish(String event) {
+    }
+}
+```
+
+```yaml
+asl:
+  admin:
+    enabled: true
+    path: /asl
+    api-path: /asl/api
+  async:
+    mapdb:
+      enabled: true
+      path: ./data/asl-queue.db
+      codec: jackson-json
+```
+
+## Moduller
+
+- `asl-annotations`
+- `asl-core`
+- `asl-processor`
+- `asl-mapdb`
+- `asl-spring-boot-starter`
+
+Referans ve dogrulama icin sample moduller de vardir:
+
+- `asl-sample`
+- `asl-consumer-sample`
+- `asl-coverage`
+
+## Buradan Basla
+
+- kullanim rehberi: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\tr\USAGE_GUIDE.md)
+- Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\README.md)
+- Ingilizce README: [README.md](E:\ReactorRepository\async-service-library\README.md)
 
 ## Public Dagitim
 
-Public repo:
+- GitHub repo: [github.com/esasmer-dou/async-service-library](https://github.com/esasmer-dou/async-service-library)
+- GitHub Packages: [maven.pkg.github.com/esasmer-dou/async-service-library](https://maven.pkg.github.com/esasmer-dou/async-service-library)
+- Release sayfasi: [github.com/esasmer-dou/async-service-library/releases](https://github.com/esasmer-dou/async-service-library/releases)
 
-- [github.com/esasmer-dou/async-service-library](https://github.com/esasmer-dou/async-service-library)
+## Build
 
-Package ve release akisi:
-
-- `CI` push ve pull request dogrulamasi yapar
-- `Publish Package` Maven artefact'larini GitHub Packages'a yollar
-- `Release` `v*` tag'lerinde versiyonlu artefact ve release asset'leri yayinlar
-
-GitHub Packages adresi:
-
-- `https://maven.pkg.github.com/esasmer-dou/async-service-library`
+```powershell
+mvn verify
+```
