@@ -85,6 +85,7 @@ Referans ve dogrulama icin sample moduller de vardir:
 ## Buradan Basla
 
 - kullanim rehberi: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\tr\USAGE_GUIDE.md)
+  Override edilebilen tum property'leri, default degerlerini ve set edilmezse nasil davranacaklarini burada bulabilirsin.
 - Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\README.md)
 - Ingilizce README: [README.md](E:\ReactorRepository\async-service-library\README.md)
 

@@ -85,6 +85,7 @@ Sample and validation modules are also included for reference and verification:
 ## Start Here
 
 - usage guide: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\USAGE_GUIDE.md)
+  Includes the full list of overrideable properties, their defaults, and omitted-property behavior.
 - Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\asl-consumer-sample\README.md)
 - Turkish docs: [tr/README.md](E:\ReactorRepository\async-service-library\tr\README.md)
 
