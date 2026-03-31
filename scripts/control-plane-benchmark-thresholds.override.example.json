@@ -1,0 +1,15 @@
+{
+  "profiles": {
+    "team-ci": {
+      "idleAdminSummaryAvgMaxMs": 325,
+      "backlogAdminSummaryAvgMaxMs": 350,
+      "minimumBacklogQueueDepth": 1,
+      "minimumBacklogFailedEntries": 1,
+      "minimumBacklogHighAttentionItems": 1
+    },
+    "staging": {
+      "idleAdminSummaryAvgMaxMs": 450,
+      "backlogAdminSummaryAvgMaxMs": 500
+    }
+  }
+}

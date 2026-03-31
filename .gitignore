@@ -1,0 +1,12 @@
+**/target/
+.idea/
+.vscode/
+*.log
+*.tmp
+*.bak
+
+data/
+reports/live-run/
+reports/real-sample/sample-runtime/
+reports/mapdb-abuse/*/sample-runtime/
+tr/reports/mapdb-abuse/*/sample-runtime/

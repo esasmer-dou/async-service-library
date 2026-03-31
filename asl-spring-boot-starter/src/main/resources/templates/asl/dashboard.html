@@ -1,0 +1,1361 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${ui.pageTitle}">ASL Control Plane</title>
+    <style>
+        :root{--bg:#eef2f6;--panel:#fff;--soft:#f7fafc;--line:#d7e1ea;--ink:#17212b;--muted:#62707d;--good:#16734f;--goodbg:#eaf7f0;--info:#0b5cad;--infobg:#edf5ff;--warn:#b13d24;--warnbg:#fff3ef;--shadow:0 20px 48px rgba(15,28,44,.08)}
+        *{box-sizing:border-box} body{margin:0;font-family:"Segoe UI","Helvetica Neue",sans-serif;color:var(--ink);background:linear-gradient(180deg,#f8fbfd 0,var(--bg) 100%)}
+        main{max-width:1540px;margin:0 auto;padding:32px 24px 72px} .hero{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:28px}
+        .hero h1{margin:0;font-size:40px;letter-spacing:-.04em}.hero p{margin:10px 0 0;color:var(--muted);max-width:860px;line-height:1.55}
+        .hero-actions{display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end;align-items:center}
+        .refresh-btn{min-width:156px}
+        .live-toggle,.interval-control{display:inline-flex;align-items:center;gap:8px;padding:11px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted);font-size:13px;white-space:nowrap}.live-toggle input{width:auto}.interval-control span{font-weight:700;color:#4c6174}.interval-control select{width:auto;min-width:96px;padding:8px 34px 8px 12px;border-radius:999px;background:#f8fbfe}
+        .ajax-banner{position:sticky;top:16px;z-index:20;display:flex;justify-content:flex-end;margin-bottom:16px;pointer-events:none}.ajax-status{display:none;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.96);box-shadow:0 12px 24px rgba(20,34,48,.08);font-size:13px;color:var(--ink);pointer-events:auto}.ajax-status.visible{display:inline-flex}.ajax-status.loading{border-color:#bfd4e8;background:#f7fbff}.ajax-status.success{border-color:#bfe6cf;background:#f4fbf7}.ajax-status.error{border-color:#f0c7bc;background:#fff5f1;color:#8a3520}.ajax-dot{width:8px;height:8px;border-radius:999px;background:#0b5cad}.ajax-status.success .ajax-dot{background:#0f8a57}.ajax-status.error .ajax-dot{background:#c54b2a}
+        .badge,.chip{border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--muted)} .badge{padding:12px 14px;min-width:180px;font-size:13px}
+        .storage-banner{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(300px,.8fr);gap:18px;align-items:start;margin-bottom:22px;padding:18px;border:1px solid #efc9bc;border-radius:22px;background:linear-gradient(180deg,#fff8f5 0,#fff3ee 100%);box-shadow:0 14px 30px rgba(177,61,36,.08)}.storage-banner-kicker{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#a4462c;margin-bottom:8px}.storage-banner h3{margin:0;font-size:24px;letter-spacing:-.04em}.storage-banner p{margin:10px 0 0;color:#5d4a44;line-height:1.55}.storage-banner-meta{display:grid;gap:10px}.storage-banner-pill{display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 12px;border-radius:999px;background:#b13d24;color:#fff;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;justify-self:start}.storage-path-card{padding:12px 14px;border:1px solid #efd6cd;border-radius:16px;background:rgba(255,255,255,.82)}.storage-path-card label{display:block;margin-bottom:6px;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#8a4a38}.storage-path-card code{display:block;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.5;color:#4c3a34;overflow-wrap:anywhere;white-space:normal}
+        .overview-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:24px}.overview-card{border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,#ffffff 0,#f5f9fd 100%);padding:16px;box-shadow:0 16px 34px rgba(20,34,48,.05)}.overview-card span{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.overview-card strong{display:block;font-size:32px;line-height:1;letter-spacing:-.05em}.overview-card small{display:block;margin-top:8px;font-size:12px;line-height:1.45;color:#556676}.pressure-card{color:#fff;border-color:#203244;background:linear-gradient(180deg,#23384f 0,#172535 100%);box-shadow:0 18px 34px rgba(21,35,49,.2)}.pressure-card span,.pressure-card small{color:#d8e4ef}.pressure-card.pressure-high{background:linear-gradient(180deg,#c55232 0,#95351d 100%);border-color:#95351d}.pressure-card.pressure-medium{background:linear-gradient(180deg,#0b5cad 0,#0a467f 100%);border-color:#0a467f}
+        .ops-digest{margin-bottom:20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,#fbfdff 0,#f5f9fc 100%);padding:18px;box-shadow:0 12px 28px rgba(20,34,48,.05)}.ops-digest-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}.ops-digest-head h3{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--info)}.ops-digest-head p{margin:6px 0 0;font-size:13px;line-height:1.5;color:var(--muted)}.digest-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:flex-end}.ops-digest-body{display:grid;grid-template-columns:minmax(260px,.7fr) minmax(0,1.3fr);gap:14px;align-items:start}.ops-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.ops-summary-card{padding:14px;border:1px solid #dce6ef;border-radius:16px;background:#fff;box-shadow:0 10px 24px rgba(20,34,48,.04)}.ops-summary-card label{display:block;font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#617180;margin-bottom:6px}.ops-summary-card strong{display:block;font-size:24px;line-height:1.05}.ops-summary-card span{display:block;margin-top:5px;font-size:12px;line-height:1.45;color:#5a6977}
+        .attention-queue-note{margin:0 0 10px}.attention-queue-note strong{display:block;color:var(--ink);font-size:13px;margin-bottom:4px}.attention-shortcuts{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;margin-bottom:14px}.attention-shortcut{padding:14px;border:1px solid #d9e4ed;border-radius:18px;background:#fff;text-align:left;color:var(--ink);box-shadow:0 10px 24px rgba(20,34,48,.04);white-space:normal}.attention-shortcut:hover{border-color:#8fb6d8;background:#f8fbff}.attention-shortcut.high{border-color:#efc1b6;background:#fff7f4}.attention-shortcut.warn{border-color:#c8d8ea;background:#f7fbff}.attention-shortcut-top{display:flex;align-items:center;justify-content:space-between;gap:12px}.attention-shortcut-title{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#506170}.attention-shortcut-headline{margin-top:8px;font-size:18px;font-weight:800;letter-spacing:-.03em;line-height:1.15}.attention-shortcut-detail{margin-top:8px;font-size:13px;line-height:1.5;color:#586877}.attention-shortcut-open{margin-top:10px;font-size:12px;font-weight:800;letter-spacing:.04em;color:#0b5cad;text-transform:uppercase}
+        .attention-empty{padding:14px;border:1px dashed #cbd8e3;border-radius:16px;background:#fff;color:#576777;font-size:13px;line-height:1.6}.attention-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}.attention-item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;padding:14px;border:1px solid #dde6ef;border-radius:16px;background:#fff;box-shadow:0 10px 24px rgba(20,34,48,.04);align-items:start}.attention-item.high{border-color:#efc1b6;background:#fff6f3}.attention-item.warn{border-color:#c8d8ea;background:#f7fbff}.attention-severity{display:inline-flex;align-items:center;justify-content:center;min-width:60px;height:32px;padding:0 10px;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;background:#213244;color:#fff}.attention-item.high .attention-severity{background:#c55232}.attention-item.warn .attention-severity{background:#0b5cad}.attention-title{font-size:12px;font-weight:800;letter-spacing:.04em;color:#506170;text-transform:uppercase}.attention-headline{margin-top:4px;font-size:17px;font-weight:800;letter-spacing:-.03em;color:var(--ink)}.attention-detail{margin-top:6px;font-size:13px;line-height:1.5;color:#566675}.attention-action{margin-top:8px;font-size:13px;line-height:1.5;color:#163451;font-weight:700}.attention-jump{align-self:center;min-width:120px}
+        .canvas,.empty{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:var(--shadow)} .empty h2{margin:0 0 8px}
+        .workspace-content{min-width:0}
+        .service-topbar{margin-bottom:20px;border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,#fbfdff 0,#f5f9fc 100%);padding:16px;box-shadow:0 12px 28px rgba(20,34,48,.05)}
+        .service-topbar-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:12px}.service-topbar-head h3{margin:0;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--info)}.service-topbar-note{margin-top:6px;font-size:12px;color:var(--muted);line-height:1.45}
+        .service-topbar-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+        .service-search{min-width:220px;margin:0}
+        .filter-bar{display:grid;gap:6px;margin:0 0 12px;padding:6px;border:1px solid #d6e1ea;border-radius:18px;background:linear-gradient(180deg,#ffffff 0,#eef4f9 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.82),0 10px 24px rgba(20,34,48,.05);align-items:center}
+        .filter-bar[data-service-filter-bar]{grid-template-columns:repeat(5,max-content);width:max-content;max-width:100%}
+        .filter-bar[data-method-filter-bar]{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+        .filter-bar[data-method-filter-bar] .filter-chip[data-filter-value="ALL"]{grid-column:1/-1}
+        .filter-chip{min-height:40px;padding:9px 14px;border-radius:12px;background:transparent;color:#4c5f72;border:1px solid transparent;box-shadow:none;font-size:12px;font-weight:900;letter-spacing:.05em;text-transform:uppercase;transition:background .12s ease,color .12s ease,border-color .12s ease,box-shadow .12s ease,transform .12s ease;text-align:center;justify-content:center;white-space:nowrap}
+        .filter-chip:hover{background:#f6faff;border-color:#bfd2e4;color:#18354f;transform:translateY(-1px)}
+        .filter-chip.active{background:linear-gradient(180deg,#24415e 0,#182d44 100%);border-color:#162a40;color:#fff;box-shadow:0 14px 24px rgba(24,45,68,.2), inset 0 1px 0 rgba(255,255,255,.12)}
+        .filter-chip.active:hover{background:linear-gradient(180deg,#28486a 0,#1b334c 100%);border-color:#162a40;color:#fff}
+        .sidebar.compact .filter-bar[data-method-filter-bar]{grid-template-columns:1fr}
+        .sidebar.compact .filter-bar[data-method-filter-bar] .filter-chip[data-filter-value="ALL"]{grid-column:auto}
+        .sidebar.compact .filter-chip{font-size:11px}
+        .service-tabs{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;padding:2px 0 6px}.service-tab{min-width:0;width:100%;padding:13px 14px;border:1px solid var(--line);border-radius:18px;background:#fff;cursor:pointer;text-align:left;color:var(--ink);box-shadow:0 8px 24px rgba(20,34,48,.04);align-self:stretch;white-space:normal;overflow:hidden}
+        .service-tab:hover{border-color:#b8cadb;background:#f9fbfe}.service-tab.active{background:#edf5ff;border-color:#8fb6d8;box-shadow:0 12px 28px rgba(11,92,173,.08)}.service-tab-title{display:flex;flex-direction:column;gap:2px;min-height:44px;color:var(--ink);text-shadow:none}
+        .service-tab-title-main{display:block;font-size:clamp(18px,1.6vw,22px);font-weight:800;line-height:1.04;letter-spacing:-.03em;word-break:keep-all;overflow-wrap:normal}
+        .service-tab-title-suffix{display:block;font-size:12px;font-weight:700;line-height:1;color:#6f8191;letter-spacing:.04em}
+        .service-tab-note{margin-top:6px;font-size:12px;color:#4c6174;line-height:1.4}.service-chip-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}.chip{padding:7px 9px;font-size:12px;line-height:1;text-align:center;justify-content:center}
+        .service-tabs.dense{grid-template-columns:repeat(auto-fit,minmax(152px,1fr))}.service-tabs.compact{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}
+        .service-topbar.compact-topbar .service-tab{padding:11px 12px;border-radius:16px}
+        .service-tabs.dense .service-tab-title-main{font-size:clamp(16px,1.25vw,19px)}.service-tabs.compact .service-tab-title-main{font-size:clamp(13px,0.95vw,16px);line-height:1.04}
+        .service-tabs.dense .service-tab-title-suffix{font-size:11px}.service-tabs.compact .service-tab-title-suffix{font-size:10px}
+        .service-tabs.dense .service-tab-note{font-size:11px}.service-tabs.compact .service-tab-note{display:none}
+        .service-tabs.dense .service-chip-row{gap:6px}.service-tabs.compact .service-chip-row{grid-template-columns:1fr;gap:6px}
+        .service-tabs.dense .chip{font-size:11px;padding:6px 8px}.service-tabs.compact .chip{font-size:10px;padding:6px 7px}
+        .chip.info{background:var(--infobg);color:var(--info)} .chip.warn{background:var(--warnbg);color:var(--warn)}
+        .service-panel{display:none}.service-panel.active{display:block}
+        .service-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}.service-head h2{margin:0;font-size:28px;letter-spacing:-.04em}.service-head p{margin:8px 0 0;color:var(--muted);line-height:1.5}
+        .service-layout{display:grid;grid-template-columns:340px minmax(0,1fr);gap:18px;align-items:start}.sidebar{border:1px solid var(--line);border-radius:20px;background:var(--soft);padding:14px;align-self:start;max-height:calc(100vh - 220px);overflow:auto;position:sticky;top:18px}.sidebar h3{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--info)}
+        .method-tabs{display:grid;gap:10px}.method-tab{width:100%;padding:14px 14px;border:1px solid var(--line);border-radius:16px;background:#fff;cursor:pointer;text-align:left;color:var(--ink);box-shadow:0 6px 20px rgba(20,34,48,.03);white-space:normal;overflow:hidden}.method-tab:hover{border-color:#b8cadb;background:#f9fbfe}.method-tab.active{background:#edf5ff;border-color:#8fb6d8;box-shadow:0 10px 22px rgba(11,92,173,.08)}
+        .method-tab-top{display:block}.method-tab-name{display:block;font-size:20px;font-weight:800;line-height:1.08;letter-spacing:-.03em;overflow-wrap:normal;word-break:normal;hyphens:none;color:var(--ink)}.method-tab-sign{display:block;margin-top:6px;font-size:12px;color:#4f6477;line-height:1.45;overflow-wrap:anywhere;word-break:break-word}.method-tab-badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.method-sidebar-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.method-sidebar-stat{padding:9px 10px;border:1px solid #d6e1ea;border-radius:12px;background:linear-gradient(180deg,#f6f9fc 0,#eef4f8 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}.method-sidebar-stat strong{display:block;font-size:15px;line-height:1.1}.method-sidebar-stat span{display:block;margin-top:3px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+        .sidebar.dense .method-tab{padding:12px}.sidebar.compact .method-tab{padding:10px 11px;border-radius:14px}
+        .sidebar.dense .method-tab-name{font-size:clamp(17px,1.3vw,19px)}.sidebar.compact .method-tab-name{font-size:clamp(14px,1vw,16px);line-height:1.08}
+        .sidebar.dense .method-tab-sign{font-size:12px}.sidebar.compact .method-tab-sign{font-size:11px;line-height:1.35;margin-top:6px}
+        .sidebar.compact .method-tab-badges{gap:6px}.sidebar.compact .pill{padding:7px 10px;font-size:10px}
+        .sidebar.compact .method-sidebar-stats{grid-template-columns:1fr}.sidebar.compact .method-sidebar-stat strong{font-size:14px}.sidebar.compact .method-sidebar-stat span{font-size:10px}
+        .detail{display:none;border:1px solid var(--line);border-radius:20px;background:#fff;padding:18px;min-height:clamp(760px,calc(100vh - 210px),1080px);max-height:calc(100vh - 120px);overflow:auto;scrollbar-gutter:stable both-edges}.detail.active{display:block}.detail-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:14px}
+        .detail-head h3{margin:0;font-size:30px;font-weight:800;letter-spacing:-.04em;line-height:1.05}.signature{margin-top:8px;padding:11px 13px;border:1px solid #e1e9f1;border-radius:14px;background:#f5f8fb;color:var(--muted);line-height:1.45}
+        .service-layout.dense .detail{min-height:clamp(700px,calc(100vh - 220px),1020px)}.service-layout.dense .detail-head h3{font-size:clamp(24px,1.9vw,28px)}.service-layout.dense .signature{font-size:14px;padding:10px 12px}.service-layout.dense .raw{font-size:11px}
+        .raw{margin-top:8px;font-size:12px;color:#738191;font-family:Consolas,"Courier New",monospace;overflow-wrap:anywhere}.status-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end}
+        .pill{display:inline-flex;align-items:center;justify-content:center;padding:9px 13px;border-radius:999px;font-size:11px;font-weight:900;letter-spacing:.06em;border:1px solid transparent;line-height:1;text-transform:uppercase}
+        .pill.state-running{background:#0f8a57;color:#fff;border-color:#0f8a57;box-shadow:0 8px 18px rgba(15,138,87,.18)}
+        .pill.state-stopped,.pill.warn{background:#c54b2a;color:#fff;border-color:#c54b2a;box-shadow:0 8px 18px rgba(197,75,42,.16)}
+        .pill.mode-sync{background:#25384d;color:#fff;border-color:#25384d;box-shadow:0 8px 18px rgba(37,56,77,.14)}
+        .pill.mode-async,.pill.info{background:#0b5cad;color:#fff;border-color:#0b5cad;box-shadow:0 8px 18px rgba(11,92,173,.18)}
+        .pill.mode-critical{padding:11px 16px;font-size:12px;letter-spacing:.09em;box-shadow:0 14px 26px rgba(11,92,173,.2)}
+        .detail-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 16px}.summary-card{padding:14px;border:1px solid #dbe6ee;border-radius:16px;background:linear-gradient(180deg,#fbfdff 0,#f1f6fa 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}.summary-card label{display:block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}.summary-card strong{display:block;font-size:24px;line-height:1.05}.summary-card span{display:block;margin-top:5px;font-size:12px;color:#60707f;line-height:1.4}
+        .control-deck{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:16px}
+        .command-card{border:1px solid #dfe8f0;border-radius:18px;background:linear-gradient(180deg,#fbfdff 0,#f6faff 100%);padding:14px;box-shadow:0 12px 24px rgba(20,34,48,.04)}
+        .command-card h4{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--info)}
+        .state-cluster{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px}
+        .action-stack{display:grid;gap:10px}
+        .action-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center}
+        .start-btn{min-height:52px;padding:13px 20px}
+        .stop-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
+        .stop-btn{min-height:52px;padding:13px 22px}
+        .action-stack input{min-height:48px}
+        .mini,.fact{border:1px solid #dbe6ee;border-radius:16px;background:linear-gradient(180deg,#fbfdff 0,#f1f6fa 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.8)}.mini-row{display:flex;flex-wrap:wrap;gap:10px}.mini{min-width:92px;padding:10px 12px}.mini strong{display:block;font-size:18px;line-height:1.1}.mini span{display:block;margin-top:3px;font-size:11px;color:var(--muted)}
+        .detail-secondary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}.fact{padding:12px}.fact label{display:block;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:5px}.fact div{font-size:15px;line-height:1.4;overflow-wrap:anywhere}
+        .controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.block{border:1px solid #e6edf3;border-radius:18px;background:#fcfdff;padding:14px}.block h4,.buffer h4{margin:0 0 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--info)}
+        .form-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}.async{grid-column:1/-1}.async-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.abox{padding:12px;border:1px solid #e6edf3;border-radius:14px;background:#fff}.abox label{display:block;margin-bottom:8px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.abox-value{margin:0 0 10px;font-size:14px;font-weight:700;color:#445667}.mode-switch{display:grid;grid-template-columns:1fr;gap:10px}.mode-switch-form,.consumer-control-form{display:grid;gap:10px}.mode-switch-btn{width:100%;min-height:48px;justify-content:center}.mode-switch-btn.active-mode{background:linear-gradient(180deg,#0d60b5 0,#0a4d90 100%);border-color:#0a4d90;box-shadow:0 22px 36px rgba(11,92,173,.24);color:#fff}.mode-switch-btn.active-mode::before{background:rgba(255,255,255,.16);color:#fff}.consumer-control-form button{width:100%}.field-pending{border-color:#8fb6d8 !important;box-shadow:0 0 0 3px rgba(11,92,173,.12)}
+        input,select{width:100%;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font:inherit} form{margin:0}
+        button{font:inherit;cursor:pointer}
+        .btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:11px 16px;border:2px solid #17314b;border-radius:16px;font-weight:900;letter-spacing:.01em;color:#fff;white-space:nowrap;box-shadow:0 18px 30px rgba(19,32,46,.18), inset 0 1px 0 rgba(255,255,255,.16);transition:transform .12s ease,box-shadow .12s ease,background .12s ease,border-color .12s ease,filter .12s ease;text-align:center}
+        .btn:hover{transform:translateY(-1px);box-shadow:0 22px 36px rgba(19,32,46,.24), inset 0 1px 0 rgba(255,255,255,.2);filter:saturate(1.04)}
+        .btn:active{transform:translateY(0);box-shadow:0 10px 18px rgba(19,32,46,.18), inset 0 1px 0 rgba(255,255,255,.12)}
+        .btn:focus-visible{outline:3px solid rgba(11,92,173,.22);outline-offset:2px}
+        .btn-primary{background:linear-gradient(180deg,#223a52 0,#182c41 100%);border-color:#152a40}
+        .btn-secondary{background:linear-gradient(180deg,#294b6c 0,#1d3752 100%);border-color:#17314b}
+        .btn-secondary:hover{background:linear-gradient(180deg,#31577c 0,#21405d 100%)}
+        .btn-danger{background:linear-gradient(180deg,#dc5c38 0,#b64324 100%);border-color:#9d351d;box-shadow:0 20px 34px rgba(182,67,36,.2), inset 0 1px 0 rgba(255,255,255,.16)}
+        .btn-danger:hover{background:linear-gradient(180deg,#e56845 0,#c14c2b 100%)}
+        .btn-subtle{background:linear-gradient(180deg,#ffffff 0,#edf3f9 100%);border-color:#c6d5e3;color:#17314b;box-shadow:0 14px 24px rgba(23,49,75,.08), inset 0 1px 0 rgba(255,255,255,.9)}
+        .btn-subtle:hover{background:linear-gradient(180deg,#ffffff 0,#e6eef7 100%)}
+        .btn-icon::before{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:rgba(255,255,255,.16);font-size:12px;line-height:1;flex:none}
+        .btn-subtle.btn-icon::before{background:rgba(23,49,75,.08)}
+        .btn-icon-refresh::before{content:"↻"}
+        .btn-icon-open::before{content:"→"}
+        .btn-icon-start::before{content:"▶"}
+        .btn-icon-stop::before{content:"■"}
+        .btn-icon-update::before{content:"✓"}
+        .btn-icon-sync::before{content:"S"}
+        .btn-icon-async::before{content:"A"}
+        .btn-icon-clear::before{content:"×"}
+        .btn-icon-replay::before{content:"↺"}
+        .btn-icon-delete::before{content:"✕"}
+        .btn-icon-top::before{content:"↑"}
+        .btn-icon-bottom::before{content:"↓"}
+        .hint{margin-top:8px;font-size:12px;color:var(--muted);line-height:1.45}.buffer{margin-top:16px;padding-top:16px;border-top:1px solid #e6edf3}.buffer h4{color:#9a5d00}.buffer-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:12px}.buffer-actions-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.buffer-summary{display:flex;flex-wrap:wrap;gap:8px;padding:10px 12px;border:1px solid #f1dec0;border-radius:14px;background:#fff8ef;color:#75511c;font-size:13px;line-height:1.5;margin-bottom:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.75)}
+        .buffer-empty{padding:12px;border:1px dashed var(--line);border-radius:14px;background:#f8fafc;color:var(--muted);font-size:13px;line-height:1.5}.buffer ul{list-style:none;margin:12px 0 0;padding:0}.buffer li{margin-bottom:10px;padding:12px;border:1px solid #e7edf3;border-radius:14px;background:#fff}
+        .buffer-entry-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}.buffer-entry-id{font-size:13px;font-weight:800;color:var(--ink);overflow-wrap:anywhere}.buffer-state{display:flex;flex-wrap:wrap;gap:8px}
+        .buffer-text{font-size:13px;line-height:1.55;overflow-wrap:anywhere;margin-bottom:10px}.buffer-meta{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:10px}.buffer-kv{padding:10px 11px;border:1px solid #e6edf3;border-radius:12px;background:#f8fbfd;box-shadow:inset 0 1px 0 rgba(255,255,255,.78)}.buffer-kv strong{display:block;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:4px}.buffer-kv span{display:block;font-size:13px;line-height:1.4;overflow-wrap:anywhere}
+        .buffer-error{margin-bottom:10px;padding:10px 11px;border:1px solid #f1d5cd;border-radius:12px;background:#fff7f4;font-size:13px;line-height:1.5;color:#7f331f;overflow-wrap:anywhere}.buffer-actions{display:flex;flex-wrap:wrap;gap:8px}.flash-change{animation:flashChange 1.4s ease}.flash-change strong,.flash-change div,.flash-change span{color:#0b5cad !important}@keyframes flashChange{0%{box-shadow:0 0 0 0 rgba(11,92,173,.22);background:#eef6ff;border-color:#8fb6d8}100%{box-shadow:0 0 0 0 rgba(11,92,173,0)}}
+        .scroll-nav{position:fixed;right:22px;bottom:22px;z-index:26;display:flex;flex-direction:column;gap:10px;opacity:0;transform:translateY(16px);pointer-events:none;transition:opacity .18s ease,transform .18s ease}.scroll-nav.visible{opacity:1;transform:translateY(0);pointer-events:auto}.scroll-nav button{min-width:88px;justify-content:center}
+        @media (max-width:1220px){.service-layout{grid-template-columns:300px minmax(0,1fr)}}
+        @media (max-width:1080px){.service-layout,.control-deck,.ops-digest-body{grid-template-columns:1fr}.sidebar{position:static;max-height:none}.detail{min-height:auto;max-height:none;overflow:visible;scrollbar-gutter:auto}.detail-summary-grid,.detail-secondary,.controls,.async-grid,.overview-grid,.attention-shortcuts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+        @media (max-width:900px){.service-tabs{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}}
+        @media (max-width:720px){.hero,.service-head,.status-row,.buffer-entry-head,.hero-actions,.buffer-toolbar,.buffer-actions-row,.service-topbar-head,.service-topbar-controls,.ops-digest-head,.digest-actions,.method-tab-top{flex-direction:column;align-items:flex-start}.detail-summary-grid,.detail-secondary,.controls,.async-grid,.action-row,.stop-form,.buffer-meta,.method-sidebar-stats,.service-chip-row,.ops-summary-grid,.overview-grid,.attention-shortcuts{grid-template-columns:1fr}.form-row{grid-template-columns:1fr}.interval-control{width:100%;justify-content:space-between}.scroll-nav{right:14px;bottom:14px}.service-tabs{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.service-search{width:100%}.attention-item{grid-template-columns:1fr}.attention-jump{width:100%}}
+    </style>
+</head>
+<body>
+<main data-dashboard-path=""
+      th:attr="data-dashboard-path=${pagePath},
+               data-running-label=${ui.runningLabel},
+               data-stopped-label=${ui.stoppedLabel},
+               data-sync-mode-label=${ui.syncModeLabel},
+               data-async-label=${ui.asyncLabel},
+               data-pending-label=${ui.pendingLabel},
+               data-failed-label=${ui.failedLabel},
+               data-in-progress-label=${ui.inProgressLabel},
+               data-default-live-refresh-enabled=${config.refresh.liveRefreshEnabled},
+               data-default-live-buffer-enabled=${config.refresh.liveBufferEnabled},
+               data-default-refresh-interval-ms=${config.refresh.defaultIntervalMs},
+               data-change-flash-ms=${config.refresh.changeFlashMs},
+               data-success-message-auto-hide-ms=${config.refresh.successMessageAutoHideMs},
+               data-error-message-auto-hide-ms=${config.refresh.errorMessageAutoHideMs},
+               data-worker-capacity-label=${ui.workerCapacityLabel},
+               data-scroll-top-label=${ui.scrollTopLabel},
+               data-scroll-bottom-label=${ui.scrollBottomLabel},
+               data-ready-status=${ui.readyStatusLabel},
+               data-applying-change=${ui.applyingChangeMessage},
+               data-change-applied=${ui.changeAppliedMessage},
+               data-request-failed=${ui.requestFailedMessage},
+               data-refreshing-metrics=${ui.refreshingMetricsMessage},
+               data-metrics-refreshed=${ui.metricsRefreshedMessage},
+               data-refreshing-buffer=${ui.refreshingBufferMessage},
+               data-buffer-refreshed=${ui.bufferRefreshedMessage}">
+    <div class="ajax-banner">
+        <div class="ajax-status" data-ajax-status aria-live="polite">
+            <span class="ajax-dot"></span>
+            <span data-ajax-status-text th:text="${ui.readyStatusLabel}">Ready</span>
+        </div>
+    </div>
+    <section class="hero">
+        <div>
+            <h1 th:text="${ui.heroTitle}">ASL Control Plane</h1>
+            <p th:text="${ui.heroDescription}">Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.</p>
+        </div>
+        <div class="hero-actions">
+            <button type="button" class="btn btn-primary btn-icon btn-icon-refresh refresh-btn" data-refresh-now th:text="${ui.refreshNowLabel}">Refresh Now</button>
+            <label class="live-toggle">
+                <input type="checkbox" data-live-refresh th:checked="${config.refresh.liveRefreshEnabled}"/>
+                <span th:text="${ui.liveRefreshLabel}">Live Refresh</span>
+            </label>
+            <label class="interval-control">
+                <span th:text="${ui.refreshIntervalLabel}">Refresh Interval</span>
+                <select data-refresh-interval>
+                    <option th:each="interval : ${config.refresh.intervalOptionsMs}"
+                            th:value="${interval}"
+                            th:selected="${interval == config.refresh.defaultIntervalMs}"
+                            th:text="${interval >= 1000 ? (interval / 1000) + 's' : interval + 'ms'}">5s</option>
+                </select>
+            </label>
+            <div class="badge" th:text="${ui.restBadgePrefix + ' ' + apiPath}">REST: /asl/api</div>
+        </div>
+    </section>
+
+    <section th:if="${summary.hasStorageRecovery()}" class="storage-banner">
+        <div>
+            <span class="storage-banner-kicker">Startup Storage Recovery</span>
+            <h3 th:text="${summary.storageRecovery.headline}">Recovered queue store on startup</h3>
+            <p th:text="${summary.storageRecovery.detail}">A corrupted queue store was detected during startup.</p>
+        </div>
+        <div class="storage-banner-meta">
+            <div class="storage-banner-pill" th:text="${summary.storageRecovery.statusLabel}">Corrupt file archived</div>
+            <div class="storage-path-card">
+                <label>Original Store</label>
+                <code th:text="${summary.storageRecovery.originalPath}">E:\data\queue.db</code>
+            </div>
+            <div class="storage-path-card" th:if="${summary.storageRecovery.hasMovedPath()}">
+                <label th:text="${summary.storageRecovery.corruptFileArchived} ? 'Archived To' : 'Recovery Path'">Archived To</label>
+                <code th:text="${summary.storageRecovery.movedToPath}">E:\data\queue.db.corrupt-123</code>
+            </div>
+            <div class="storage-path-card" th:if="${summary.storageRecovery.hasActiveStorePath()}">
+                <label>Active Store</label>
+                <code th:text="${summary.storageRecovery.activeStorePath}">E:\data\queue.db</code>
+            </div>
+        </div>
+    </section>
+
+    <section th:if="${!#lists.isEmpty(services)}" class="overview-grid">
+        <article class="overview-card pressure-card" th:classappend="${summary.overallPressure == 'HIGH'} ? ' pressure-high' : (${summary.overallPressure == 'MEDIUM'} ? ' pressure-medium' : ' pressure-low')">
+            <span>System Pressure</span>
+            <strong th:text="${summary.overallPressure}">LOW</strong>
+            <small th:text="${summary.hasAttention() ? summary.attentionCount() + ' lanes currently need review' : 'No immediate attention items detected'}">No immediate attention items detected</small>
+        </article>
+        <article class="overview-card">
+            <span>Registered Services</span>
+            <strong th:text="${summary.serviceCount}">0</strong>
+            <small th:text="${summary.methodCount + ' governed methods across the current runtime registry'}">0 governed methods across the current runtime registry</small>
+        </article>
+        <article class="overview-card">
+            <span>Queue Backlog</span>
+            <strong th:text="${summary.totalQueueDepth}">0</strong>
+            <small th:text="${summary.pendingEntries + ' pending / ' + summary.inProgressEntries + ' in progress / ' + summary.failedEntries + ' failed'}">0 pending / 0 in progress / 0 failed</small>
+        </article>
+        <article class="overview-card">
+            <span>Running Methods</span>
+            <strong th:text="${summary.runningMethodCount}">0</strong>
+            <small th:text="${summary.stoppedMethodCount + ' currently stopped'}">0 currently stopped</small>
+        </article>
+        <article class="overview-card">
+            <span>Async Live Lanes</span>
+            <strong th:text="${summary.asyncActiveMethodCount}">0</strong>
+            <small th:text="${summary.asyncCapableMethodCount + ' async-capable methods registered'}">0 async-capable methods registered</small>
+        </article>
+        <article class="overview-card">
+            <span>Failures</span>
+            <strong th:text="${summary.methodsWithErrors}">0</strong>
+            <small th:text="${summary.failedEntries + ' failed buffer entries currently retained'}">0 failed buffer entries currently retained</small>
+        </article>
+        <article class="overview-card">
+            <span>In Flight</span>
+            <strong th:text="${summary.totalInFlight}">0</strong>
+            <small th:text="${summary.totalRejected + ' rejected calls recorded'}">0 rejected calls recorded</small>
+        </article>
+        <article class="overview-card">
+            <span>Total Processed</span>
+            <strong th:text="${summary.totalProcessed}">0</strong>
+            <small th:text="${'Snapshot endpoint: ' + apiPath + '/summary'}">Snapshot endpoint: /asl/api/summary</small>
+        </article>
+    </section>
+
+    <section th:if="${#lists.isEmpty(services)}" class="empty">
+        <h2 th:text="${ui.emptyTitle}">No governed services registered</h2>
+        <div class="service-panel-caption" th:text="${ui.emptyDescription}">The admin UI is active, but the runtime registry is empty.</div>
+    </section>
+
+    <section th:if="${!#lists.isEmpty(services)}" class="canvas">
+        <div class="ops-digest">
+            <div class="ops-digest-head">
+                <div>
+                    <h3>Operations Digest</h3>
+                    <p>Start here before opening a specific method. This section surfaces the busiest lanes, blocked queues, recent failures and stopped methods in one place.</p>
+                </div>
+                <div class="digest-actions">
+                    <div class="chip" th:text="${summary.attentionCount() + ' attention items'}">0 attention items</div>
+                    <button
+                            th:if="${summary.hasAttention()}"
+                            type="button"
+                            class="btn btn-secondary btn-icon btn-icon-open"
+                            th:attr="data-open-service-id=${summary.attentionItems[0].serviceId},data-open-method-id=${summary.attentionItems[0].methodId}">
+                        Open Highest-Priority Lane
+                    </button>
+                </div>
+            </div>
+            <div th:if="${summary.hasAttention()}">
+                <div class="service-topbar-note attention-queue-note">
+                    <strong>Attention Queue</strong>
+                    Jump directly into the highest-priority lanes instead of browsing the full service list first.
+                </div>
+            <div class="attention-shortcuts" th:if="${summary.hasAttention()}">
+                <button
+                        th:each="item, itemStat : ${summary.attentionItems}"
+                        th:if="${itemStat.index < 4}"
+                        type="button"
+                        class="attention-shortcut"
+                        th:classappend="${item.severity == 'HIGH'} ? ' high' : (${item.severity == 'WARN'} ? ' warn' : '')"
+                        th:attr="data-open-service-id=${item.serviceId},data-open-method-id=${item.methodId}">
+                    <div class="attention-shortcut-top">
+                        <div class="attention-shortcut-title" th:text="${item.serviceId + ' / ' + item.methodName}">demo.service / publish</div>
+                        <span class="attention-severity" th:text="${item.severity}">HIGH</span>
+                    </div>
+                    <div class="attention-shortcut-headline" th:text="${item.headline}">Queued work is blocked</div>
+                    <div class="attention-shortcut-detail" th:text="${item.detail}">2 queued entries exist while consumer threads are 0.</div>
+                    <div class="attention-shortcut-open">Open lane</div>
+                </button>
+            </div>
+            </div>
+            <div class="ops-digest-body">
+                <div class="ops-summary-grid">
+                    <div class="ops-summary-card">
+                        <label>Methods With Errors</label>
+                        <strong th:text="${summary.methodsWithErrors}">0</strong>
+                        <span th:text="${summary.failedEntries + ' failed buffer entries need follow-up'}">0 failed buffer entries need follow-up</span>
+                    </div>
+                    <div class="ops-summary-card">
+                        <label>Stopped Methods</label>
+                        <strong th:text="${summary.stoppedMethodCount}">0</strong>
+                        <span th:text="${summary.runningMethodCount + ' methods are currently serving traffic'}">0 methods are currently serving traffic</span>
+                    </div>
+                    <div class="ops-summary-card">
+                        <label>Queue Footprint</label>
+                        <strong th:text="${summary.totalQueueDepth}">0</strong>
+                        <span th:text="${summary.pendingEntries + ' pending and ' + summary.inProgressEntries + ' in progress'}">0 pending and 0 in progress</span>
+                    </div>
+                    <div class="ops-summary-card">
+                        <label>Runtime Throughput</label>
+                        <strong th:text="${summary.totalProcessed}">0</strong>
+                        <span th:text="${summary.totalRejected + ' rejected calls have been recorded'}">0 rejected calls have been recorded</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="attention-empty" th:if="${!summary.hasAttention()}">
+                        No immediate action items are visible. The control plane is currently reporting low pressure across registered lanes.
+                    </div>
+                    <ul class="attention-list" th:if="${summary.hasAttention()}">
+                        <li th:each="item : ${summary.attentionItems}" class="attention-item" th:classappend="${item.severity == 'HIGH'} ? ' high' : (${item.severity == 'WARN'} ? ' warn' : '')">
+                            <div class="attention-severity" th:text="${item.severity}">HIGH</div>
+                            <div>
+                                <div class="attention-title" th:text="${item.serviceId + ' / ' + item.methodName}">demo.service / publish</div>
+                                <div class="attention-headline" th:text="${item.headline}">Queued work is blocked</div>
+                                <div class="attention-detail" th:text="${item.detail}">2 queued entries exist while consumer threads are 0.</div>
+                                <div class="attention-action" th:text="${item.action}">Raise consumer threads or switch the lane back to sync mode.</div>
+                            </div>
+                    <button type="button" class="btn btn-secondary btn-icon btn-icon-open attention-jump" th:attr="data-open-service-id=${item.serviceId},data-open-method-id=${item.methodId}">
+                        Open lane
+                    </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div class="service-topbar">
+            <div class="service-topbar-head">
+                <div>
+                    <h3 th:text="${ui.servicesTitle}">Services</h3>
+                    <div class="service-topbar-note">If nothing in the attention queue needs intervention, browse all services below.</div>
+                </div>
+                <div class="chip" th:text="${#lists.size(services)}">3</div>
+            </div>
+            <div class="service-topbar-controls">
+                <input class="service-search" type="search" data-service-search th:placeholder="${ui.serviceSearchPlaceholder}" placeholder="Search services"/>
+                <div class="filter-bar" data-service-filter-bar>
+                    <button type="button" class="filter-chip active" data-filter-group="service" data-filter-value="ALL" th:text="${ui.allLabel}">All</button>
+                    <button type="button" class="filter-chip" data-filter-group="service" data-filter-value="RUNNING" th:text="${ui.runningLabel}">RUNNING</button>
+                    <button type="button" class="filter-chip" data-filter-group="service" data-filter-value="STOPPED" th:text="${ui.stoppedLabel}">STOPPED</button>
+                    <button type="button" class="filter-chip" data-filter-group="service" data-filter-value="ASYNC" th:text="${ui.asyncLabel}">ASYNC</button>
+                    <button type="button" class="filter-chip" data-filter-group="service" data-filter-value="ERROR" th:text="${ui.errorLabel}">ERROR</button>
+                </div>
+            </div>
+            <div class="service-tabs">
+                <button th:each="service, s : ${services}" type="button" class="service-tab" th:classappend="${s.index == 0} ? ' active' : ''" th:attr="data-service-tab=${'svc-' + s.index},data-service-id=${service.serviceId},data-service-running=${service.stoppedMethods() < service.totalMethods()},data-service-stopped=${service.stoppedMethods() > 0},data-service-async=${service.asyncCapableMethods() > 0},data-service-error=${service.methodsWithErrors() > 0}">
+                    <div class="service-tab-title">
+                        <span class="service-tab-title-main" th:text="${#strings.endsWith(service.serviceId, '.service') ? #strings.substring(service.serviceId, 0, #strings.length(service.serviceId) - 8) : service.serviceId}">mail</span>
+                        <span class="service-tab-title-suffix" th:text="${#strings.endsWith(service.serviceId, '.service') ? '.service' : ''}">.service</span>
+                    </div>
+                    <div class="service-tab-note" th:text="${ui.serviceTabNote}">Open this service subform</div>
+                    <div class="service-chip-row">
+                        <span class="chip" th:text="${service.totalMethods() + ' ' + ui.methodsCountSuffix}">0 methods</span>
+                        <span class="chip info" th:text="${service.asyncCapableMethods() + ' ' + ui.asyncCapableSuffix}">0 async-capable</span>
+                        <span class="chip" th:text="${service.stoppedMethods() + ' ' + ui.stoppedSuffix}">0 stopped</span>
+                        <span class="chip warn" th:text="${service.methodsWithErrors() + ' ' + ui.methodsWithErrorsSuffix}">0 with errors</span>
+                    </div>
+                </button>
+            </div>
+        </div>
+
+        <section class="workspace-content">
+            <section th:each="service, s : ${services}" class="service-panel" th:classappend="${s.index == 0} ? ' active' : ''" th:attr="data-service-panel=${'svc-' + s.index},data-service-id=${service.serviceId}">
+                    <div class="service-head">
+                        <div>
+                            <h2 th:text="${service.serviceId}">mail.service</h2>
+                            <p th:text="${ui.serviceDetailNote}">Select a method from the left subform list to manage its full details.</p>
+                        </div>
+                        <div class="service-chip-row">
+                            <span class="chip" th:text="${service.totalMethods() + ' ' + ui.methodsCountSuffix}">0 methods</span>
+                            <span class="chip info" th:text="${service.asyncCapableMethods() + ' ' + ui.asyncCapableSuffix}">0 async-capable</span>
+                            <span class="chip" th:text="${service.stoppedMethods() + ' ' + ui.stoppedSuffix}">0 stopped</span>
+                            <span class="chip warn" th:text="${service.methodsWithErrors() + ' ' + ui.methodsWithErrorsSuffix}">0 with errors</span>
+                        </div>
+                    </div>
+
+                    <div class="service-layout">
+                        <aside class="sidebar">
+                            <h3 th:text="${ui.methodsTitle}">Methods</h3>
+                            <div class="filter-bar" data-method-filter-bar>
+                                <button type="button" class="filter-chip active" data-filter-group="method" data-filter-value="ALL" th:text="${ui.allLabel}">All</button>
+                                <button type="button" class="filter-chip" data-filter-group="method" data-filter-value="RUNNING" th:text="${ui.runningLabel}">RUNNING</button>
+                                <button type="button" class="filter-chip" data-filter-group="method" data-filter-value="STOPPED" th:text="${ui.stoppedLabel}">STOPPED</button>
+                                <button type="button" class="filter-chip" data-filter-group="method" data-filter-value="ASYNC" th:text="${ui.asyncLabel}">ASYNC</button>
+                                <button type="button" class="filter-chip" data-filter-group="method" data-filter-value="ERROR" th:text="${ui.errorLabel}">ERROR</button>
+                            </div>
+                             <div class="method-tabs">
+                                 <button th:each="methodView, m : ${service.methods}" type="button" class="method-tab" th:classappend="${m.index == 0} ? ' active' : ''" th:attr="data-method-tab=${'svc-' + s.index + '-m-' + m.index},data-method-id=${methodView.rawMethodId()},data-method-running=${methodView.method.enabled},data-method-stopped=${!methodView.method.enabled},data-method-async=${methodView.isAsyncMode()},data-method-error=${methodView.hasError()}">
+                                     <div class="method-tab-top">
+                                         <div>
+                                             <div class="method-tab-name" th:text="${methodView.displayTitle()}">createDraft</div>
+                                             <div class="method-tab-sign" th:text="${methodView.hasParameters() ? methodView.displaySignature() : ui.noParametersLabel}">CreateMailRequest</div>
+                                         </div>
+                                     </div>
+                                     <div class="method-tab-badges">
+                                         <span class="pill" data-field="sidebar-status" th:classappend="${methodView.method.enabled} ? ' state-running' : ' state-stopped'" th:text="${methodView.method.enabled} ? ui.runningLabel : ui.stoppedLabel">RUNNING</span>
+                                         <span class="pill mode-critical" data-field="sidebar-mode" th:classappend="${methodView.isAsyncMode()} ? ' mode-async' : ' mode-sync'" th:text="${methodView.isAsyncMode()} ? ui.asyncLabel : ui.syncModeLabel">ASYNC</span>
+                                         <span class="pill warn" th:if="${methodView.hasError()}" th:text="${ui.errorLabel}">ERROR</span>
+                                     </div>
+                                     <div class="method-sidebar-stats">
+                                         <div class="method-sidebar-stat">
+                                             <strong data-field="sidebar-active-work" th:text="${methodView.currentWork()}">0</strong>
+                                             <span th:text="${ui.activeWorkLabel}">Active Work</span>
+                                         </div>
+                                         <div class="method-sidebar-stat">
+                                             <strong data-field="sidebar-queue-depth" th:text="${methodView.queueDepth()}">0</strong>
+                                             <span th:text="${ui.queueDepthLabel}">Queue Depth</span>
+                                         </div>
+                                         <div class="method-sidebar-stat">
+                                             <strong data-field="sidebar-failed-count" th:text="${methodView.buffer.failedCount}">0</strong>
+                                             <span th:text="${ui.failedLabel}">Failed</span>
+                                         </div>
+                                     </div>
+                                 </button>
+                             </div>
+                         </aside>
+
+                         <section>
+                             <article th:each="methodView, m : ${service.methods}" class="detail" th:classappend="${m.index == 0} ? ' active' : ''" th:attr="data-method-panel=${'svc-' + s.index + '-m-' + m.index},data-method-id=${methodView.rawMethodId()}">
+                                <div class="detail-head">
+                                    <div>
+                                        <h3 th:text="${methodView.displayTitle()}">createDraft</h3>
+                                        <div class="signature" th:text="${methodView.hasParameters() ? methodView.displaySignature() : ui.noParametersLabel}">CreateMailRequest</div>
+                                        <div class="raw" th:text="${methodView.rawMethodId()}">createDraft(com.example.Request)</div>
+                                    </div>
+                                    <div class="status-row">
+                                        <span class="pill" data-field="status" th:classappend="${methodView.method.enabled} ? ' state-running' : ' state-stopped'" th:text="${methodView.method.enabled} ? ui.runningLabel : ui.stoppedLabel">RUNNING</span>
+                                        <span class="pill mode-critical" data-field="mode" th:classappend="${methodView.isAsyncMode()} ? ' mode-async' : ' mode-sync'" th:text="${methodView.isAsyncMode()} ? ui.asyncLabel : ui.syncModeLabel">ASYNC</span>
+                                        <span class="pill warn" th:if="${methodView.hasError()}" th:text="${ui.errorLabel}">ERROR</span>
+                                    </div>
+                                </div>
+
+                                <div class="detail-summary-grid">
+                                    <div class="summary-card" data-field="active-work-card">
+                                        <label th:text="${ui.activeWorkLabel}">Active Work</label>
+                                        <strong data-field="active-work" th:text="${methodView.currentWork()}">0</strong>
+                                        <span data-field="load" th:text="${ui.loadLabel + ': ' + methodView.method.inFlight + ' / ' + methodView.method.maxConcurrency}">Load: 0 / 1</span>
+                                    </div>
+                                    <div class="summary-card" data-field="queue-depth-card">
+                                        <label th:text="${ui.queueDepthLabel}">Queue Depth</label>
+                                        <strong data-field="queue-depth" th:text="${methodView.queueDepth()}">0</strong>
+                                        <span data-field="work-pressure" th:text="${ui.workPressureLabel + ': ' + methodView.workPressure(config.mediumUtilizationPercent, config.highUtilizationPercent)}">Work Pressure: LOW</span>
+                                    </div>
+                                    <div class="summary-card" data-field="processed-card">
+                                        <label th:text="${ui.processedLabel}">Processed</label>
+                                        <strong data-field="processed" th:text="${methodView.totalProcessed()}">0</strong>
+                                        <span data-field="success" th:text="${ui.successLabel + ': ' + methodView.method.successCount}">Success: 0</span>
+                                    </div>
+                                    <div class="summary-card" data-field="rejected-card">
+                                        <label th:text="${ui.rejectedLabel}">Rejected</label>
+                                        <strong data-field="rejected" th:text="${methodView.method.rejectedCount}">0</strong>
+                                        <span data-field="utilization" th:text="${ui.utilizationLabel + ': ' + methodView.utilizationPercent() + '%'}">Utilization: 0%</span>
+                                    </div>
+                                </div>
+
+                                <div class="control-deck">
+                                    <div class="command-card">
+                                        <h4 th:text="${ui.methodStateTitle}">Method State</h4>
+                                        <div class="state-cluster">
+                                            <span class="pill" data-field="command-status" th:classappend="${methodView.method.enabled} ? ' state-running' : ' state-stopped'" th:text="${methodView.method.enabled} ? ui.runningLabel : ui.stoppedLabel">RUNNING</span>
+                                            <span class="pill mode-critical" data-field="command-mode" th:classappend="${methodView.isAsyncMode()} ? ' mode-async' : ' mode-sync'" th:text="${methodView.isAsyncMode()} ? ui.asyncLabel : ui.syncModeLabel">ASYNC</span>
+                                        </div>
+                                        <div class="action-stack">
+                                            <form th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/enable|}" method="post">
+                                                <button type="submit" class="btn btn-primary btn-icon btn-icon-start start-btn" th:text="${ui.startMethodLabel}">Start Method</button>
+                                            </form>
+                                            <form class="stop-form" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/disable|}" method="post">
+                                                <input type="text" name="message" th:placeholder="${ui.disablePlaceholder}" placeholder="Reason shown to callers"/>
+                                                <button type="submit" class="btn btn-danger btn-icon btn-icon-stop stop-btn" th:text="${ui.stopMethodLabel}">Stop Method</button>
+                                            </form>
+                                        </div>
+                                        <div class="hint" th:text="${ui.methodStateHint}">Stopping a method returns the configured message to incoming callers.</div>
+                                    </div>
+
+                                    <div class="command-card">
+                                        <h4 th:text="${ui.syncConcurrencyTitle}">Sync Concurrency</h4>
+                                        <form class="form-row" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/concurrency|}" method="post">
+                                            <input type="number" min="1" name="maxConcurrency" th:value="${methodView.method.maxConcurrency}"/>
+                                            <button type="submit" class="btn btn-secondary btn-icon btn-icon-update" th:text="${ui.updateLimitLabel}">Update Limit</button>
+                                        </form>
+                                        <div class="hint" th:text="${ui.syncConcurrencyHint}">Defines how many concurrent executions are allowed for this method.</div>
+                                        <div class="hint" data-field="worker-capacity" th:text="${ui.workerCapacityLabel + ': ' + methodView.workerCapacityText()}">Worker Capacity: 0 async / 4 max</div>
+                                        <div class="hint" data-field="peak" th:text="${ui.peakInFlightLabel + ': ' + methodView.method.peakInFlight}">Peak In Flight: 0</div>
+                                    </div>
+
+                                    <div class="command-card" th:if="${methodView.method.asyncCapable}">
+                                        <h4 th:text="${ui.asyncControlsTitle}">Async Controls</h4>
+                                        <div class="async-grid">
+                                            <div class="abox">
+                                                <label th:text="${ui.executionModeLabel}">Execution Mode</label>
+                                                <div class="abox-value" data-field="execution-mode-text" th:text="${methodView.method.executionMode.name() == 'ASYNC' ? ui.asyncLabel : ui.syncModeLabel}">SYNC</div>
+                                                <div class="mode-switch">
+                                                    <form class="mode-switch-form" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/mode|}" method="post">
+                                                        <input type="hidden" name="executionMode" value="SYNC"/>
+                                                        <button type="submit" class="btn btn-subtle btn-icon btn-icon-sync mode-switch-btn" th:classappend="${methodView.method.executionMode.name() == 'SYNC'} ? ' active-mode' : ''" th:text="${ui.syncModeLabel}">SYNC</button>
+                                                    </form>
+                                                    <form class="mode-switch-form" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/mode|}" method="post">
+                                                        <input type="hidden" name="executionMode" value="ASYNC"/>
+                                                        <button type="submit" class="btn btn-subtle btn-icon btn-icon-async mode-switch-btn" th:classappend="${methodView.method.executionMode.name() == 'ASYNC'} ? ' active-mode' : ''" th:text="${ui.asyncLabel}">ASYNC</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                            <div class="abox">
+                                                <label th:text="${ui.consumerThreadsLabel}">Consumer Threads</label>
+                                                <div class="abox-value" data-field="consumer-threads" th:text="${methodView.method.consumerThreads}">0</div>
+                                                <form class="consumer-control-form" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/consumer-threads|}" method="post">
+                                                    <input type="number" min="0" name="consumerThreads" th:value="${methodView.method.consumerThreads}"/>
+                                                    <button type="submit" class="btn btn-secondary btn-icon btn-icon-update" th:text="${ui.updateConsumersLabel}">Update</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                        <div class="hint" th:text="${ui.asyncHint}">Use async mode only for methods designed to be safely queued and consumed later.</div>
+                                    </div>
+                                </div>
+
+                                <div class="detail-secondary">
+                                    <div class="fact" data-field="last-error-card">
+                                        <label th:text="${ui.lastErrorLabel}">Last Error</label>
+                                        <div data-field="last-error" th:text="${methodView.method.lastError != null ? methodView.method.lastError : ui.noneLabel}">none</div>
+                                    </div>
+                                    <div class="fact" data-field="execution-mode-card">
+                                        <label th:text="${ui.executionModeLabel}">Execution Mode</label>
+                                        <div th:text="${methodView.method.executionMode.name() == 'ASYNC' ? ui.asyncLabel : ui.syncModeLabel}">SYNC</div>
+                                    </div>
+                                    <div class="fact" data-field="consumer-threads-card">
+                                        <label th:text="${ui.consumerThreadsLabel}">Consumer Threads</label>
+                                        <div th:text="${methodView.method.consumerThreads}">0</div>
+                                    </div>
+                                    <div class="fact" data-field="load-overview-card">
+                                        <label th:text="${ui.loadOverviewTitle}">Load Overview</label>
+                                        <div th:text="${ui.pendingLabel + ': ' + methodView.buffer.pendingCount + ' / ' + ui.failedLabel + ': ' + methodView.buffer.failedCount}">Pending: 0 / Failed: 0</div>
+                                    </div>
+                                </div>
+
+                        <div class="buffer">
+                            <h4 th:text="${ui.queueBufferTitle}">Queue Buffer</h4>
+                            <div class="buffer-empty" th:if="${!methodView.buffer.available}" th:text="${ui.noBufferMessage}">No buffer provider is currently attached to this method.</div>
+                            <div th:if="${methodView.buffer.available}">
+                                <div class="buffer-toolbar">
+                                    <div class="buffer-actions-row">
+                                        <button type="button" class="btn btn-subtle btn-icon btn-icon-refresh" data-refresh-buffer th:text="${ui.refreshBufferLabel}">Refresh Buffer</button>
+                                        <label class="live-toggle">
+                                            <input type="checkbox" data-live-buffer th:checked="${config.refresh.liveBufferEnabled}"/>
+                                            <span th:text="${ui.liveBufferLabel}">Live Buffer</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="buffer-summary">
+                                    <span data-field="buffer-pending" th:text="${ui.pendingLabel + ': ' + methodView.buffer.pendingCount}">Pending: 0</span>
+                                    <span data-field="buffer-failed" th:text="${ui.failedLabel + ': ' + methodView.buffer.failedCount}">Failed: 0</span>
+                                    <span data-field="buffer-in-progress" th:text="${ui.inProgressLabel + ': ' + methodView.buffer.inProgressCount}">In progress: 0</span>
+                                </div>
+                                <form th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/buffer/clear|}" method="post">
+                                    <button type="submit" class="btn btn-danger btn-icon btn-icon-clear" th:text="${ui.clearBufferLabel}">Clear Buffer</button>
+                                </form>
+                                <ul>
+                                    <li th:each="entry : ${methodView.buffer.entries}">
+                                        <div class="buffer-entry-head">
+                                            <div class="buffer-entry-id" th:text="${ui.entryIdLabel + ': ' + entry.entryId}">Entry Id: 1</div>
+                                            <div class="buffer-state">
+                                                <span class="pill" th:classappend="${entry.state == 'FAILED'} ? ' state-stopped' : (${entry.state == 'IN_PROGRESS'} ? ' mode-async' : ' mode-sync')" th:text="${entry.state}">PENDING</span>
+                                                <span class="pill warn" th:if="${entry.errorCategory != null}" th:text="${entry.errorCategory}">BUSINESS</span>
+                                            </div>
+                                        </div>
+                                        <div class="buffer-text" th:text="${entry.summary}">payload summary</div>
+                                        <div class="buffer-meta">
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.attemptsLabel}">Attempts</strong>
+                                                <span th:text="${entry.attempts}">0</span>
+                                            </div>
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.codecLabel}">Codec</strong>
+                                                <span th:text="${entry.codecId != null ? entry.codecId : ui.noneLabel}">jackson-json-v1</span>
+                                            </div>
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.payloadTypeLabel}">Payload Type</strong>
+                                                <span th:text="${entry.payloadType != null ? entry.payloadType : ui.noneLabel}">mail.audit</span>
+                                            </div>
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.payloadVersionLabel}">Payload Version</strong>
+                                                <span th:text="${entry.payloadVersion != null ? entry.payloadVersion : ui.noneLabel}">v2</span>
+                                            </div>
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.errorTypeLabel}">Error Type</strong>
+                                                <span th:text="${entry.lastErrorType != null ? entry.lastErrorType : ui.noneLabel}">java.lang.IllegalStateException</span>
+                                            </div>
+                                            <div class="buffer-kv">
+                                                <strong th:text="${ui.errorCategoryLabel}">Error Category</strong>
+                                                <span th:text="${entry.errorCategory != null ? entry.errorCategory : ui.noneLabel}">BUSINESS</span>
+                                            </div>
+                                        </div>
+                                        <div class="buffer-error" th:if="${entry.lastError != null}" th:text="${entry.lastError}">java.lang.IllegalStateException: boom</div>
+                                        <div class="buffer-text" th:if="${entry.lastError == null}" th:text="${ui.lastErrorLabel + ': ' + ui.noneLabel}">Last Error: none</div>
+                                        <div class="buffer-actions">
+                                            <form th:if="${entry.state == 'FAILED'}" th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/buffer/${entry.entryId}/replay|}" method="post">
+                                                <button type="submit" class="btn btn-secondary btn-icon btn-icon-replay" th:text="${ui.replayEntryLabel}">Replay Entry</button>
+                                            </form>
+                                            <form th:action="@{|${pagePath}/services/${service.serviceId}/methods/${methodView.method.methodId}/buffer/${entry.entryId}/delete|}" method="post">
+                                                <button type="submit" class="btn btn-danger btn-icon btn-icon-delete" th:text="${ui.deleteEntryLabel}">Delete Entry</button>
+                                            </form>
+                                        </div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </article>
+            </section>
+        </section>
+    </section>
+</main>
+<div class="scroll-nav" data-scroll-nav>
+    <button type="button" class="btn btn-secondary btn-icon btn-icon-top" data-scroll-top>
+        <span th:text="${ui.scrollTopLabel}">Top</span>
+    </button>
+    <button type="button" class="btn btn-secondary btn-icon btn-icon-bottom" data-scroll-bottom>
+        <span th:text="${ui.scrollBottomLabel}">Bottom</span>
+    </button>
+</div>
+<script>
+(() => {
+  function datasetNumber(key, fallback) {
+    const rawValue = document.querySelector("main")?.dataset[key];
+    const parsed = Number.parseInt(rawValue ?? "", 10);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+
+  function datasetBoolean(key, fallback) {
+    const rawValue = document.querySelector("main")?.dataset[key];
+    if (rawValue === undefined) {
+      return fallback;
+    }
+    return rawValue === "true";
+  }
+
+  function defaultRefreshIntervalMs() {
+    return datasetNumber("defaultRefreshIntervalMs", 5000);
+  }
+
+  function changeFlashMs() {
+    return datasetNumber("changeFlashMs", 1400);
+  }
+
+  function successMessageAutoHideMs() {
+    return datasetNumber("successMessageAutoHideMs", 1600);
+  }
+
+  function errorMessageAutoHideMs() {
+    return datasetNumber("errorMessageAutoHideMs", 3200);
+  }
+
+  function defaultLiveRefreshEnabled() {
+    return datasetBoolean("defaultLiveRefreshEnabled", true);
+  }
+
+  function defaultLiveBufferEnabled() {
+    return datasetBoolean("defaultLiveBufferEnabled", true);
+  }
+
+  function uiMessage(key, fallback) {
+    return document.querySelector("main")?.dataset[key] || fallback;
+  }
+
+  function statusController() {
+    let timerId = null;
+    function show(kind, message, autoHideMs) {
+      const node = document.querySelector("[data-ajax-status]");
+      const text = document.querySelector("[data-ajax-status-text]");
+      if (!node || !text) {
+        return;
+      }
+      node.classList.add("visible");
+      node.classList.remove("loading", "success", "error");
+      node.classList.add(kind);
+      text.textContent = message;
+      if (timerId) {
+        window.clearTimeout(timerId);
+      }
+      if (autoHideMs) {
+        timerId = window.setTimeout(() => {
+          node.classList.remove("visible", "loading", "success", "error");
+        }, autoHideMs);
+      }
+    }
+    return {
+      loading(message) { show("loading", message, 0); },
+      success(message) { show("success", message, successMessageAutoHideMs()); },
+      error(message) { show("error", message, errorMessageAutoHideMs()); }
+    };
+  }
+
+  const status = statusController();
+  let liveRefreshTimerId = null;
+  let refreshInFlight = false;
+
+  function activateService(root, id){
+    root.querySelectorAll("[data-service-tab]").forEach(x=>x.classList.toggle("active",x.dataset.serviceTab===id));
+    root.querySelectorAll("[data-service-panel]").forEach(x=>x.classList.toggle("active",x.dataset.servicePanel===id));
+    applyAdaptiveDensity(root);
+  }
+
+  function activateMethod(panel,id, options = {}){
+    const scrollMethodTab = options.scrollMethodTab !== false;
+    panel.querySelectorAll("[data-method-tab]").forEach(x=>x.classList.toggle("active",x.dataset.methodTab===id));
+    panel.querySelectorAll("[data-method-panel]").forEach(x=>x.classList.toggle("active",x.dataset.methodPanel===id));
+    if (scrollMethodTab) {
+      panel.querySelector(`[data-method-tab="${id}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    applyAdaptiveDensity(document);
+  }
+
+  function focusLane(root, serviceId, methodId) {
+    if (!serviceId) {
+      return;
+    }
+    const serviceTab = [...root.querySelectorAll("[data-service-tab]")].find(tab => tab.dataset.serviceId === serviceId);
+    if (!serviceTab) {
+      return;
+    }
+    const serviceSearch = root.querySelector("[data-service-search]");
+    if (serviceSearch) {
+      serviceSearch.value = "";
+    }
+    setActiveFilter(root, "service", "ALL");
+    applyServiceFilter(root);
+    activateService(root, serviceTab.dataset.serviceTab);
+
+    const panel = root.querySelector(`[data-service-panel="${serviceTab.dataset.serviceTab}"]`);
+    if (!panel) {
+      return;
+    }
+    setActiveFilter(panel, "method", "ALL");
+    applyMethodFilter(panel, "ALL");
+
+    if (methodId) {
+      const methodTab = [...panel.querySelectorAll("[data-method-tab]")].find(tab => tab.dataset.methodId === methodId);
+      if (methodTab) {
+        activateMethod(panel, methodTab.dataset.methodTab);
+      }
+    }
+
+    (panel.querySelector(`[data-method-panel].active`) || panel.querySelector(".service-head") || panel)
+      .scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+
+  function applyAdaptiveDensity(root) {
+    const serviceTabs = root.querySelector(".service-tabs");
+    const serviceTopbar = root.querySelector(".service-topbar");
+    if (serviceTabs) {
+      const visibleServiceTabs = [...serviceTabs.querySelectorAll("[data-service-tab]:not([hidden])")];
+      const longestServiceTitle = visibleServiceTabs.reduce((max, tab) => {
+        return Math.max(max, (tab.querySelector(".service-tab-title")?.textContent.trim().length ?? 0));
+      }, 0);
+      const denseServices = visibleServiceTabs.length >= 8 || longestServiceTitle >= 18;
+      const compactServices = visibleServiceTabs.length >= 12 || longestServiceTitle >= 24;
+      serviceTabs.classList.toggle("dense", denseServices);
+      serviceTabs.classList.toggle("compact", compactServices);
+      serviceTopbar?.classList.toggle("compact-topbar", compactServices);
+    }
+
+    root.querySelectorAll("[data-service-panel]").forEach(panel => {
+      const sidebar = panel.querySelector(".sidebar");
+      const methodTabs = panel.querySelector(".method-tabs");
+      const serviceLayout = panel.querySelector(".service-layout");
+      if (!sidebar || !methodTabs || !serviceLayout) {
+        return;
+      }
+      const visibleMethodTabs = [...methodTabs.querySelectorAll("[data-method-tab]:not([hidden])")];
+      const longestMethodBlock = visibleMethodTabs.reduce((max, tab) => {
+        const nameLength = tab.querySelector(".method-tab-name")?.textContent.trim().length ?? 0;
+        const signLength = tab.querySelector(".method-tab-sign")?.textContent.trim().length ?? 0;
+        return Math.max(max, nameLength + signLength);
+      }, 0);
+      const denseMethods = visibleMethodTabs.length >= 8 || longestMethodBlock >= 34;
+      const compactMethods = visibleMethodTabs.length >= 12 || longestMethodBlock >= 46;
+      sidebar.classList.toggle("dense", denseMethods);
+      sidebar.classList.toggle("compact", compactMethods);
+      methodTabs.classList.toggle("dense", denseMethods);
+      methodTabs.classList.toggle("compact", compactMethods);
+      serviceLayout.classList.toggle("dense", compactMethods);
+    });
+  }
+
+  function setActiveFilter(root, group, value) {
+    root.querySelectorAll(`[data-filter-group="${group}"]`).forEach(button => {
+      button.classList.toggle("active", button.dataset.filterValue === value);
+    });
+  }
+
+  function activeFilterValue(root, group) {
+    return root.querySelector(`[data-filter-group="${group}"].active`)?.dataset.filterValue ?? "ALL";
+  }
+
+  function matchesFilter(value, filterValue) {
+    if (filterValue === "ALL") {
+      return true;
+    }
+    return value === "true";
+  }
+
+  function applyServiceFilter(root) {
+    const searchInput = root.querySelector("[data-service-search]");
+    const query = searchInput?.value.trim().toLowerCase() ?? "";
+    const filterValue = activeFilterValue(root, "service");
+    let firstVisibleServiceId = null;
+    root.querySelectorAll("[data-service-tab]").forEach(tab => {
+      const matchesQuery = query.length === 0 || tab.textContent.toLowerCase().includes(query);
+      const matchesState =
+        matchesFilter(tab.dataset.serviceRunning, filterValue === "RUNNING" ? "RUNNING" : "ALL") &&
+        matchesFilter(tab.dataset.serviceStopped, filterValue === "STOPPED" ? "STOPPED" : "ALL") &&
+        matchesFilter(tab.dataset.serviceAsync, filterValue === "ASYNC" ? "ASYNC" : "ALL") &&
+        matchesFilter(tab.dataset.serviceError, filterValue === "ERROR" ? "ERROR" : "ALL");
+      const matches = matchesQuery && matchesState;
+      tab.hidden = !matches;
+      const panel = root.querySelector(`[data-service-panel="${tab.dataset.serviceTab}"]`);
+      if (panel) {
+        panel.hidden = !matches;
+      }
+      if (matches && !firstVisibleServiceId) {
+        firstVisibleServiceId = tab.dataset.serviceTab;
+      }
+    });
+    const activeTab = root.querySelector("[data-service-tab].active");
+    if ((!activeTab || activeTab.hidden) && firstVisibleServiceId) {
+      activateService(root, firstVisibleServiceId);
+    }
+    applyAdaptiveDensity(root);
+  }
+
+  function applyMethodFilter(panel, filterValue) {
+    if (!panel) {
+      return;
+    }
+    let firstVisibleMethodId = null;
+    panel.querySelectorAll("[data-method-tab]").forEach(tab => {
+      const matches =
+        matchesFilter(tab.dataset.methodRunning, filterValue === "RUNNING" ? "RUNNING" : "ALL") &&
+        matchesFilter(tab.dataset.methodStopped, filterValue === "STOPPED" ? "STOPPED" : "ALL") &&
+        matchesFilter(tab.dataset.methodAsync, filterValue === "ASYNC" ? "ASYNC" : "ALL") &&
+        matchesFilter(tab.dataset.methodError, filterValue === "ERROR" ? "ERROR" : "ALL");
+      tab.hidden = !matches;
+      const detail = panel.querySelector(`[data-method-panel="${tab.dataset.methodTab}"]`);
+      if (detail) {
+        detail.hidden = !matches;
+      }
+      if (matches && !firstVisibleMethodId) {
+        firstVisibleMethodId = tab.dataset.methodTab;
+      }
+    });
+    const activeTab = panel.querySelector("[data-method-tab].active");
+    if ((!activeTab || activeTab.hidden) && firstVisibleMethodId) {
+      activateMethod(panel, firstVisibleMethodId);
+    }
+    applyAdaptiveDensity(document);
+  }
+
+  function captureState(root) {
+    const activeServicePanel = root.querySelector("[data-service-panel].active");
+    const activeMethodPanel = activeServicePanel?.querySelector("[data-method-panel].active");
+    const activeMethodTab = activeServicePanel?.querySelector("[data-method-tab].active");
+    const activeSidebar = activeServicePanel?.querySelector(".sidebar");
+    const detailMaxScrollTop = activeMethodPanel
+      ? Math.max(0, activeMethodPanel.scrollHeight - activeMethodPanel.clientHeight)
+      : 0;
+    return {
+      activeService: root.querySelector("[data-service-tab].active")?.dataset.serviceTab ?? null,
+      activeMethod: activeMethodTab?.dataset.methodTab ?? activeMethodPanel?.dataset.methodPanel ?? null,
+      scrollY: window.scrollY,
+      sidebarScrollTop: activeSidebar?.scrollTop ?? 0,
+      detailScrollTop: activeMethodPanel?.scrollTop ?? 0,
+      detailScrollBottomOffset: activeMethodPanel ? Math.max(0, detailMaxScrollTop - activeMethodPanel.scrollTop) : 0,
+      liveRefreshEnabled: root.querySelector("[data-live-refresh]")?.checked ?? defaultLiveRefreshEnabled(),
+      liveBufferEnabled: activeMethodPanel?.querySelector("[data-live-buffer]")?.checked ?? defaultLiveBufferEnabled(),
+      refreshIntervalMs: Number.parseInt(root.querySelector("[data-refresh-interval]")?.value ?? `${defaultRefreshIntervalMs()}`, 10) || defaultRefreshIntervalMs(),
+      serviceSearchQuery: root.querySelector("[data-service-search]")?.value ?? "",
+      serviceFilter: activeFilterValue(root, "service"),
+      methodFilter: activeFilterValue(activeServicePanel ?? root, "method")
+    };
+  }
+
+  function hasActiveEditor(root) {
+    const active = document.activeElement;
+    return !!active && root.contains(active) && active.matches("input, select, textarea");
+  }
+
+  function hasDirtyForms(root) {
+    return root.querySelector("[data-form-dirty='true']") !== null;
+  }
+
+  function updateScrollNavigator() {
+    const nav = document.querySelector("[data-scroll-nav]");
+    if (!nav) {
+      return;
+    }
+    const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+    nav.classList.toggle("visible", maxScroll > 180 && (window.scrollY > 120 || window.scrollY < maxScroll - 120));
+  }
+
+  function captureFieldSnapshot(root, state) {
+    const result = new Map();
+    const servicePanel = state.activeService ? root.querySelector(`[data-service-panel="${state.activeService}"]`) : root.querySelector("[data-service-panel].active");
+    if (!servicePanel) {
+      return result;
+    }
+    const methodPanel = state.activeMethod ? servicePanel.querySelector(`[data-method-panel="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-panel].active");
+    const methodTab = state.activeMethod ? servicePanel.querySelector(`[data-method-tab="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-tab].active");
+    [methodTab, methodPanel].filter(Boolean).forEach(node => {
+      node.querySelectorAll("[data-field]").forEach(field => {
+        const key = `${node.dataset.methodTab || node.dataset.methodPanel}:${field.dataset.field}`;
+        result.set(key, field.textContent.trim());
+      });
+    });
+    return result;
+  }
+
+  function flashFieldChanges(root, state, previousFields) {
+    if (!(previousFields instanceof Map) || previousFields.size === 0) {
+      return;
+    }
+    const servicePanel = state.activeService ? root.querySelector(`[data-service-panel="${state.activeService}"]`) : root.querySelector("[data-service-panel].active");
+    if (!servicePanel) {
+      return;
+    }
+    const methodPanel = state.activeMethod ? servicePanel.querySelector(`[data-method-panel="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-panel].active");
+    const methodTab = state.activeMethod ? servicePanel.querySelector(`[data-method-tab="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-tab].active");
+    [methodTab, methodPanel].filter(Boolean).forEach(node => {
+      node.querySelectorAll("[data-field]").forEach(field => {
+        const key = `${node.dataset.methodTab || node.dataset.methodPanel}:${field.dataset.field}`;
+        if (previousFields.get(key) !== undefined && previousFields.get(key) !== field.textContent.trim()) {
+          const target = field.closest(".fact,.mini,.method-load-box,.pill,.buffer-summary span,.hint") || field;
+          target.classList.remove("flash-change");
+          void target.offsetWidth;
+          target.classList.add("flash-change");
+          window.setTimeout(() => target.classList.remove("flash-change"), changeFlashMs());
+        }
+      });
+    });
+  }
+
+  function restoreScrollPositions(state, currentMethodPanel) {
+    const apply = () => {
+      window.scrollTo({ top: state.scrollY ?? 0, behavior: "auto" });
+      if (currentMethodPanel) {
+        const maxScrollTop = Math.max(0, currentMethodPanel.scrollHeight - currentMethodPanel.clientHeight);
+        const preferredScrollTop = Math.min(state.detailScrollTop ?? 0, maxScrollTop);
+        const bottomAnchoredScrollTop = Math.max(0, maxScrollTop - (state.detailScrollBottomOffset ?? 0));
+        const desiredScrollTop = state.detailScrollTop > maxScrollTop ? bottomAnchoredScrollTop : preferredScrollTop;
+        currentMethodPanel.scrollTop = desiredScrollTop;
+      }
+    };
+
+    apply();
+    window.requestAnimationFrame(() => {
+      apply();
+      window.requestAnimationFrame(apply);
+    });
+    window.setTimeout(apply, 120);
+  }
+
+  function restoreState(root, state) {
+    const serviceSearch = root.querySelector("[data-service-search]");
+    if (serviceSearch) {
+      serviceSearch.value = state.serviceSearchQuery ?? "";
+    }
+    setActiveFilter(root, "service", state.serviceFilter ?? "ALL");
+    applyServiceFilter(root);
+
+    const serviceId = state.activeService && root.querySelector(`[data-service-tab="${state.activeService}"]`)
+      && !root.querySelector(`[data-service-tab="${state.activeService}"]`)?.hidden
+      ? state.activeService
+      : root.querySelector("[data-service-tab]:not([hidden])")?.dataset.serviceTab;
+    if (serviceId) {
+      activateService(root, serviceId);
+    }
+
+    const activePanel = serviceId ? root.querySelector(`[data-service-panel="${serviceId}"]`) : root.querySelector("[data-service-panel]:not([hidden])");
+    if (activePanel) {
+      setActiveFilter(activePanel, "method", state.methodFilter ?? "ALL");
+      applyMethodFilter(activePanel, state.methodFilter ?? "ALL");
+      const activeSidebar = activePanel.querySelector(".sidebar");
+      if (activeSidebar) {
+        activeSidebar.scrollTop = state.sidebarScrollTop ?? 0;
+      }
+      const methodId = state.activeMethod && activePanel.querySelector(`[data-method-tab="${state.activeMethod}"]`)
+        ? state.activeMethod
+        : activePanel.querySelector("[data-method-tab]:not([hidden])")?.dataset.methodTab;
+      if (methodId) {
+        activateMethod(activePanel, methodId, { scrollMethodTab: false });
+      }
+    }
+
+    const liveRefresh = root.querySelector("[data-live-refresh]");
+    if (liveRefresh) {
+      liveRefresh.checked = state.liveRefreshEnabled ?? defaultLiveRefreshEnabled();
+    }
+    const currentServicePanel = serviceId ? root.querySelector(`[data-service-panel="${serviceId}"]`) : root.querySelector("[data-service-panel].active");
+    const currentMethodPanel = state.activeMethod && currentServicePanel
+      ? currentServicePanel.querySelector(`[data-method-panel="${state.activeMethod}"]`)
+      : currentServicePanel?.querySelector("[data-method-panel].active");
+    const liveBuffer = currentMethodPanel?.querySelector("[data-live-buffer]");
+    if (liveBuffer) {
+      liveBuffer.checked = state.liveBufferEnabled ?? defaultLiveBufferEnabled();
+    }
+    const refreshInterval = root.querySelector("[data-refresh-interval]");
+    if (refreshInterval) {
+      refreshInterval.value = `${state.refreshIntervalMs ?? defaultRefreshIntervalMs()}`;
+    }
+
+    restoreScrollPositions(state, currentMethodPanel);
+  }
+
+  async function refreshDashboard(state, options = {}) {
+    if (refreshInFlight) {
+      return;
+    }
+    refreshInFlight = true;
+    try {
+      const currentMain = document.querySelector("main");
+      const dashboardPath = currentMain?.dataset.dashboardPath || window.location.pathname;
+      const response = await fetch(dashboardPath, {
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(`Dashboard refresh failed with ${response.status}`);
+      }
+      const html = await response.text();
+      const nextDocument = new DOMParser().parseFromString(html, "text/html");
+      const nextMain = nextDocument.querySelector("main");
+      if (!nextMain || !currentMain) {
+        throw new Error("Dashboard refresh did not return a main view");
+      }
+      currentMain.replaceWith(nextMain);
+      initializeDashboard(document);
+      restoreState(document, state);
+      flashFieldChanges(document, state, options.previousFields);
+    } finally {
+      refreshInFlight = false;
+    }
+  }
+
+  function setFieldText(container, fieldName, value) {
+    const field = container?.querySelector(`[data-field="${fieldName}"]`);
+    if (!field) {
+      return;
+    }
+    field.textContent = value;
+    const target = field.closest(".fact,.mini,.method-load-box,.pill,.buffer-summary span,.hint") || field;
+    target.classList.add("field-pending");
+  }
+
+  function updatePillState(node, className, text) {
+    if (!node) {
+      return;
+    }
+    node.classList.remove("state-running", "state-stopped", "mode-sync", "mode-async");
+    node.classList.add(className);
+    node.textContent = text;
+    node.classList.add("field-pending");
+  }
+
+  function currentMethodNodes(state) {
+    const servicePanel = state.activeService ? document.querySelector(`[data-service-panel="${state.activeService}"]`) : document.querySelector("[data-service-panel].active");
+    if (!servicePanel) {
+      return {};
+    }
+    return {
+      servicePanel,
+      methodPanel: state.activeMethod ? servicePanel.querySelector(`[data-method-panel="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-panel].active"),
+      methodTab: state.activeMethod ? servicePanel.querySelector(`[data-method-tab="${state.activeMethod}"]`) : servicePanel.querySelector("[data-method-tab].active")
+    };
+  }
+
+  function applyOptimisticUpdate(form, state) {
+    const { methodPanel, methodTab } = currentMethodNodes(state);
+    if (!methodPanel || !methodTab) {
+      return;
+    }
+    const formData = new FormData(form);
+    const action = form.action;
+    if (action.endsWith("/enable")) {
+      updatePillState(methodPanel.querySelector('[data-field="status"]'), "state-running", uiMessage("runningLabel", "RUNNING"));
+      updatePillState(methodPanel.querySelector('[data-field="command-status"]'), "state-running", uiMessage("runningLabel", "RUNNING"));
+      updatePillState(methodTab.querySelector('[data-field="sidebar-status"]'), "state-running", uiMessage("runningLabel", "RUNNING"));
+      return;
+    }
+    if (action.endsWith("/disable")) {
+      updatePillState(methodPanel.querySelector('[data-field="status"]'), "state-stopped", uiMessage("stoppedLabel", "STOPPED"));
+      updatePillState(methodPanel.querySelector('[data-field="command-status"]'), "state-stopped", uiMessage("stoppedLabel", "STOPPED"));
+      updatePillState(methodTab.querySelector('[data-field="sidebar-status"]'), "state-stopped", uiMessage("stoppedLabel", "STOPPED"));
+      return;
+    }
+    if (action.endsWith("/concurrency")) {
+      const maxConcurrency = formData.get("maxConcurrency");
+      const loadField = methodPanel.querySelector('[data-field="load"]');
+      if (loadField && maxConcurrency) {
+        const inFlight = (loadField.textContent.split("/")[0] || "0").trim();
+        setFieldText(methodPanel, "load", `${inFlight} / ${maxConcurrency}`);
+      }
+      const workerCapacity = methodPanel.querySelector('[data-field="worker-capacity"]');
+      if (workerCapacity && maxConcurrency) {
+        workerCapacity.textContent = `${uiMessage("workerCapacityLabel", "Worker Capacity")}: ${methodPanel.querySelector('[data-field="consumer-threads"]')?.textContent.trim() || "0"} async / ${maxConcurrency} max`;
+        workerCapacity.classList.add("field-pending");
+      }
+      return;
+    }
+    if (action.endsWith("/mode")) {
+      const executionMode = `${formData.get("executionMode") || "SYNC"}`.toUpperCase();
+      const modeText = executionMode === "ASYNC" ? uiMessage("asyncLabel", "ASYNC") : uiMessage("syncModeLabel", "SYNC");
+      const modeClass = executionMode === "ASYNC" ? "mode-async" : "mode-sync";
+      updatePillState(methodPanel.querySelector('[data-field="mode"]'), modeClass, modeText);
+      updatePillState(methodPanel.querySelector('[data-field="command-mode"]'), modeClass, modeText);
+      updatePillState(methodTab.querySelector('[data-field="sidebar-mode"]'), modeClass, modeText);
+      setFieldText(methodPanel, "execution-mode-text", modeText);
+      const executionModeCard = methodPanel.querySelector('[data-field="execution-mode-card"]');
+      if (executionModeCard) {
+        executionModeCard.classList.toggle("mode-async-card", executionMode === "ASYNC");
+        executionModeCard.classList.add("field-pending");
+      }
+      return;
+    }
+    if (action.endsWith("/consumer-threads")) {
+      const consumerThreads = `${formData.get("consumerThreads") || "0"}`;
+      setFieldText(methodPanel, "consumer-threads", consumerThreads);
+      const workerCapacity = methodPanel.querySelector('[data-field="worker-capacity"]');
+      if (workerCapacity) {
+        const max = (methodPanel.querySelector('[data-field="load"]')?.textContent.split("/")[1] || "0").trim();
+        workerCapacity.textContent = `${uiMessage("workerCapacityLabel", "Worker Capacity")}: ${consumerThreads} async / ${max} max`;
+        workerCapacity.classList.add("field-pending");
+      }
+      return;
+    }
+    if (action.endsWith("/buffer/clear")) {
+      setFieldText(methodPanel, "buffer-pending", `${uiMessage("pendingLabel", "Pending")}: 0`);
+      setFieldText(methodPanel, "buffer-failed", `${uiMessage("failedLabel", "Failed")}: 0`);
+      setFieldText(methodPanel, "buffer-in-progress", `${uiMessage("inProgressLabel", "In progress")}: 0`);
+      return;
+    }
+  }
+
+  async function handleAjaxSubmit(event) {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    event.preventDefault();
+    const submitButton = form.querySelector('button[type="submit"]');
+    const previousDisabled = submitButton?.disabled ?? false;
+    const state = captureState(document);
+    const previousFields = captureFieldSnapshot(document, state);
+    try {
+      if (submitButton) {
+        submitButton.disabled = true;
+      }
+      form.dataset.formDirty = "false";
+      applyOptimisticUpdate(form, state);
+      status.loading(uiMessage("applyingChange", "Applying change..."));
+      const response = await fetch(form.action, {
+        method: (form.method || "post").toUpperCase(),
+        body: new FormData(form),
+        headers: {
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        redirect: "follow"
+      });
+      if (!response.ok) {
+        const errorText = (await response.text()).trim();
+        throw new Error(errorText || `${uiMessage("requestFailed", "Request failed")} (${response.status})`);
+      }
+      await refreshDashboard(state, { previousFields });
+      status.success(uiMessage("changeApplied", "Change applied"));
+    } catch (error) {
+      try {
+        await refreshDashboard(state, { previousFields });
+      } catch (_) {
+      }
+      status.error(error instanceof Error ? error.message : uiMessage("requestFailed", "Request failed"));
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = previousDisabled;
+      }
+      document.querySelectorAll(".field-pending").forEach(node => node.classList.remove("field-pending"));
+    }
+  }
+
+  async function performManualRefresh(messageKeyLoading, messageKeySuccess) {
+    const state = captureState(document);
+    const previousFields = captureFieldSnapshot(document, state);
+    try {
+      status.loading(uiMessage(messageKeyLoading, "Refreshing live metrics..."));
+      await refreshDashboard(state, { previousFields });
+      status.success(uiMessage(messageKeySuccess, "Metrics refreshed"));
+    } catch (error) {
+      status.error(error instanceof Error ? error.message : uiMessage("requestFailed", "Request failed"));
+    }
+  }
+
+  function syncLiveRefresh(root) {
+    if (liveRefreshTimerId) {
+      window.clearInterval(liveRefreshTimerId);
+      liveRefreshTimerId = null;
+    }
+    const globalToggle = root.querySelector("[data-live-refresh]");
+    const activeBufferToggle = root.querySelector("[data-service-panel].active [data-method-panel].active [data-live-buffer]");
+    const intervalMs = Number.parseInt(root.querySelector("[data-refresh-interval]")?.value ?? `${defaultRefreshIntervalMs()}`, 10) || defaultRefreshIntervalMs();
+    if ((!globalToggle || !globalToggle.checked) && (!activeBufferToggle || !activeBufferToggle.checked)) {
+      return;
+    }
+    liveRefreshTimerId = window.setInterval(async () => {
+      if (refreshInFlight) {
+        return;
+      }
+      if (hasActiveEditor(root) || hasDirtyForms(root)) {
+        return;
+      }
+      try {
+        const state = captureState(document);
+        const previousFields = captureFieldSnapshot(document, state);
+        await refreshDashboard(state, { previousFields });
+      } catch (_) {
+      }
+    }, intervalMs);
+  }
+
+  function initializeDashboard(root){
+    const serviceTabs = root.querySelectorAll("[data-service-tab]");
+    const servicePanels = root.querySelectorAll("[data-service-panel]");
+    serviceTabs.forEach(tab=>tab.addEventListener("click",()=>{
+      activateService(root, tab.dataset.serviceTab);
+      const activePanel = root.querySelector(`[data-service-panel="${tab.dataset.serviceTab}"]`);
+      if (activePanel) {
+        applyMethodFilter(activePanel, activeFilterValue(activePanel, "method"));
+      }
+      syncLiveRefresh(root);
+    }));
+    servicePanels.forEach(panel=>panel.querySelectorAll("[data-method-tab]").forEach(tab=>tab.addEventListener("click",()=>{
+      activateMethod(panel,tab.dataset.methodTab);
+      syncLiveRefresh(root);
+    })));
+    root.querySelectorAll("main form").forEach(form => {
+      if (!form.dataset.ajaxBound) {
+        form.dataset.ajaxBound = "true";
+        form.dataset.formDirty = "false";
+        form.addEventListener("submit", handleAjaxSubmit);
+        form.querySelectorAll("input, select, textarea").forEach(field => {
+          field.addEventListener("input", () => {
+            form.dataset.formDirty = "true";
+          });
+          field.addEventListener("change", () => {
+            form.dataset.formDirty = "true";
+          });
+        });
+      }
+    });
+    const toggle = root.querySelector("[data-live-refresh]");
+    if (toggle && !toggle.dataset.ajaxBound) {
+      toggle.dataset.ajaxBound = "true";
+      toggle.addEventListener("change", () => syncLiveRefresh(root));
+    }
+    const serviceSearch = root.querySelector("[data-service-search]");
+    if (serviceSearch && !serviceSearch.dataset.ajaxBound) {
+      serviceSearch.dataset.ajaxBound = "true";
+      serviceSearch.addEventListener("input", () => {
+        applyServiceFilter(root);
+      });
+    }
+    root.querySelectorAll('[data-filter-group="service"]').forEach(button => {
+      if (!button.dataset.ajaxBound) {
+        button.dataset.ajaxBound = "true";
+        button.addEventListener("click", () => {
+          setActiveFilter(root, "service", button.dataset.filterValue);
+          applyServiceFilter(root);
+        });
+      }
+    });
+    root.querySelectorAll('[data-service-panel]').forEach(panel => {
+      panel.querySelectorAll('[data-filter-group="method"]').forEach(button => {
+        if (!button.dataset.ajaxBound) {
+          button.dataset.ajaxBound = "true";
+          button.addEventListener("click", () => {
+            setActiveFilter(panel, "method", button.dataset.filterValue);
+            applyMethodFilter(panel, button.dataset.filterValue);
+          });
+        }
+      });
+    });
+    root.querySelectorAll("[data-open-service-id]").forEach(button => {
+      if (!button.dataset.ajaxBound) {
+        button.dataset.ajaxBound = "true";
+        button.addEventListener("click", () => {
+          focusLane(root, button.dataset.openServiceId, button.dataset.openMethodId);
+        });
+      }
+    });
+    root.querySelectorAll("[data-live-buffer]").forEach(bufferToggle => {
+      if (!bufferToggle.dataset.ajaxBound) {
+        bufferToggle.dataset.ajaxBound = "true";
+        bufferToggle.addEventListener("change", () => syncLiveRefresh(root));
+      }
+    });
+    const refreshInterval = root.querySelector("[data-refresh-interval]");
+    if (refreshInterval && !refreshInterval.dataset.ajaxBound) {
+      refreshInterval.dataset.ajaxBound = "true";
+      refreshInterval.addEventListener("change", () => syncLiveRefresh(root));
+    }
+    const refreshNow = root.querySelector("[data-refresh-now]");
+    if (refreshNow && !refreshNow.dataset.ajaxBound) {
+      refreshNow.dataset.ajaxBound = "true";
+      refreshNow.addEventListener("click", async () => performManualRefresh("refreshingMetrics", "metricsRefreshed"));
+    }
+    root.querySelectorAll("[data-refresh-buffer]").forEach(refreshBuffer => {
+      if (!refreshBuffer.dataset.ajaxBound) {
+        refreshBuffer.dataset.ajaxBound = "true";
+        refreshBuffer.addEventListener("click", async () => performManualRefresh("refreshingBuffer", "bufferRefreshed"));
+      }
+    });
+    const scrollTop = document.querySelector("[data-scroll-top]");
+    if (scrollTop && !scrollTop.dataset.ajaxBound) {
+      scrollTop.dataset.ajaxBound = "true";
+      scrollTop.addEventListener("click", () => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+    const scrollBottom = document.querySelector("[data-scroll-bottom]");
+    if (scrollBottom && !scrollBottom.dataset.ajaxBound) {
+      scrollBottom.dataset.ajaxBound = "true";
+      scrollBottom.addEventListener("click", () => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+      });
+    }
+    if (!document.body.dataset.scrollNavBound) {
+      document.body.dataset.scrollNavBound = "true";
+      window.addEventListener("scroll", updateScrollNavigator, { passive: true });
+      window.addEventListener("resize", updateScrollNavigator);
+    }
+    applyServiceFilter(root);
+    root.querySelectorAll("[data-service-panel]").forEach(panel => {
+      applyMethodFilter(panel, activeFilterValue(panel, "method"));
+    });
+    applyAdaptiveDensity(root);
+    updateScrollNavigator();
+    syncLiveRefresh(root);
+  }
+
+  initializeDashboard(document);
+})();
+</script>
+</body>
+</html>

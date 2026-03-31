@@ -1,0 +1,65 @@
+name: MapDB Abuse Nightly
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      base_port:
+        description: Base port for the destructive sample run
+        required: false
+        default: "18180"
+        type: string
+      ready_timeout_seconds:
+        description: Sample readiness timeout in seconds
+        required: false
+        default: "60"
+        type: string
+
+jobs:
+  mapdb-abuse-nightly:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run MapDB Abuse Suite
+        shell: powershell
+        run: >
+          .\scripts\run-mapdb-abuse-suite.ps1
+          -BasePort ${{ github.event.inputs.base_port || '18180' }}
+          -ReadyTimeoutSeconds ${{ github.event.inputs.ready_timeout_seconds || '60' }}
+
+      - name: Publish Job Summary
+        if: always()
+        shell: powershell
+        run: |
+          $latest = Get-ChildItem .\reports\mapdb-abuse -Directory | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if ($null -eq $latest) {
+            "MapDB abuse suite did not produce a report directory." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit 0
+          }
+          $summaryPath = Join-Path $latest.FullName "mapdb-abuse-suite-summary.md"
+          if (Test-Path $summaryPath) {
+            Get-Content $summaryPath | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          } else {
+            "Expected summary not found: $summaryPath" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          }
+
+      - name: Upload MapDB Abuse Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapdb-abuse-reports
+          path: |
+            reports/mapdb-abuse/
+            tr/reports/mapdb-abuse/

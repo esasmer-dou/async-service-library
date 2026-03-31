@@ -1,0 +1,25 @@
+{
+  "profiles": {
+    "local": {
+      "idleAdminSummaryAvgMaxMs": 250,
+      "backlogAdminSummaryAvgMaxMs": 250,
+      "minimumBacklogQueueDepth": 1,
+      "minimumBacklogFailedEntries": 1,
+      "minimumBacklogHighAttentionItems": 1
+    },
+    "ci": {
+      "idleAdminSummaryAvgMaxMs": 300,
+      "backlogAdminSummaryAvgMaxMs": 300,
+      "minimumBacklogQueueDepth": 1,
+      "minimumBacklogFailedEntries": 1,
+      "minimumBacklogHighAttentionItems": 1
+    },
+    "staging": {
+      "idleAdminSummaryAvgMaxMs": 400,
+      "backlogAdminSummaryAvgMaxMs": 450,
+      "minimumBacklogQueueDepth": 2,
+      "minimumBacklogFailedEntries": 1,
+      "minimumBacklogHighAttentionItems": 1
+    }
+  }
+}

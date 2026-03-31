@@ -1,0 +1,119 @@
+name: Control Plane Benchmark Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Threshold profile to use
+        required: false
+        default: ""
+        type: string
+      profile_resolution_path:
+        description: Optional profile resolution JSON path
+        required: false
+        default: ""
+        type: string
+      thresholds_path:
+        description: Optional threshold JSON path
+        required: false
+        default: ""
+        type: string
+      extra_thresholds_paths:
+        description: Optional semicolon-separated overlay JSON paths
+        required: false
+        default: ""
+        type: string
+      idle_admin_summary_avg_max_ms:
+        description: Optional idle Admin Summary avg latency override
+        required: false
+        default: ""
+        type: string
+      backlog_admin_summary_avg_max_ms:
+        description: Optional backlog Admin Summary avg latency override
+        required: false
+        default: ""
+        type: string
+      minimum_backlog_queue_depth:
+        description: Optional backlog queue depth override
+        required: false
+        default: ""
+        type: string
+      minimum_backlog_failed_entries:
+        description: Optional backlog failed entries override
+        required: false
+        default: ""
+        type: string
+      minimum_backlog_high_attention_items:
+        description: Optional backlog HIGH attention override
+        required: false
+        default: ""
+        type: string
+      warmup:
+        description: Warmup iterations
+        required: false
+        default: "1"
+        type: string
+      iterations:
+        description: Measured iterations
+        required: false
+        default: "3"
+        type: string
+      ready_timeout_seconds:
+        description: Sample startup readiness timeout in seconds
+        required: false
+        default: "180"
+        type: string
+  push:
+    branches:
+      - main
+      - master
+      - develop
+      - development
+      - release/**
+      - hotfix/**
+    tags:
+      - 'v*'
+      - 'release-*'
+  pull_request:
+
+jobs:
+  benchmark-gate:
+    runs-on: windows-latest
+    env:
+      ASL_BENCHMARK_PROFILE: ${{ github.event.inputs.profile || vars.ASL_BENCHMARK_PROFILE || '' }}
+      ASL_BENCHMARK_PROFILE_RESOLUTION_PATH: ${{ github.event.inputs.profile_resolution_path || vars.ASL_BENCHMARK_PROFILE_RESOLUTION_PATH || '' }}
+      ASL_BENCHMARK_THRESHOLDS_PATH: ${{ github.event.inputs.thresholds_path || vars.ASL_BENCHMARK_THRESHOLDS_PATH || '' }}
+      ASL_BENCHMARK_EXTRA_THRESHOLDS_PATHS: ${{ github.event.inputs.extra_thresholds_paths || vars.ASL_BENCHMARK_EXTRA_THRESHOLDS_PATHS || '' }}
+      ASL_BENCHMARK_IDLE_ADMIN_SUMMARY_AVG_MAX_MS: ${{ github.event.inputs.idle_admin_summary_avg_max_ms || vars.ASL_BENCHMARK_IDLE_ADMIN_SUMMARY_AVG_MAX_MS || secrets.ASL_BENCHMARK_IDLE_ADMIN_SUMMARY_AVG_MAX_MS || '' }}
+      ASL_BENCHMARK_BACKLOG_ADMIN_SUMMARY_AVG_MAX_MS: ${{ github.event.inputs.backlog_admin_summary_avg_max_ms || vars.ASL_BENCHMARK_BACKLOG_ADMIN_SUMMARY_AVG_MAX_MS || secrets.ASL_BENCHMARK_BACKLOG_ADMIN_SUMMARY_AVG_MAX_MS || '' }}
+      ASL_BENCHMARK_MINIMUM_BACKLOG_QUEUE_DEPTH: ${{ github.event.inputs.minimum_backlog_queue_depth || vars.ASL_BENCHMARK_MINIMUM_BACKLOG_QUEUE_DEPTH || secrets.ASL_BENCHMARK_MINIMUM_BACKLOG_QUEUE_DEPTH || '' }}
+      ASL_BENCHMARK_MINIMUM_BACKLOG_FAILED_ENTRIES: ${{ github.event.inputs.minimum_backlog_failed_entries || vars.ASL_BENCHMARK_MINIMUM_BACKLOG_FAILED_ENTRIES || secrets.ASL_BENCHMARK_MINIMUM_BACKLOG_FAILED_ENTRIES || '' }}
+      ASL_BENCHMARK_MINIMUM_BACKLOG_HIGH_ATTENTION_ITEMS: ${{ github.event.inputs.minimum_backlog_high_attention_items || vars.ASL_BENCHMARK_MINIMUM_BACKLOG_HIGH_ATTENTION_ITEMS || secrets.ASL_BENCHMARK_MINIMUM_BACKLOG_HIGH_ATTENTION_ITEMS || '' }}
+      ASL_BENCHMARK_READY_TIMEOUT_SECONDS: ${{ github.event.inputs.ready_timeout_seconds || vars.ASL_BENCHMARK_READY_TIMEOUT_SECONDS || '180' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Run Control-Plane Benchmark Gate
+        shell: powershell
+        run: >
+          .\scripts\run-control-plane-benchmark-gate.ps1
+          -StartSample
+          -ReadyTimeoutSeconds $env:ASL_BENCHMARK_READY_TIMEOUT_SECONDS
+          -Warmup ${{ github.event.inputs.warmup || '1' }}
+          -Iterations ${{ github.event.inputs.iterations || '3' }}
+
+      - name: Upload Benchmark Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-plane-benchmark-reports
+          path: reports/real-sample/

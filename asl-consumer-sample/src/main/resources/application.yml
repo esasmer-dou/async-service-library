@@ -1,0 +1,54 @@
+server:
+  port: 8080
+  shutdown: graceful
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 15s
+
+asl:
+  runtime:
+    default-unavailable-message: Method is disabled
+    max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
+  admin:
+    enabled: true
+    path: /asl
+    api-path: /asl/api
+    buffer-preview-limit: 50
+    dashboard:
+      attention-limit: 8
+      medium-utilization-percent: 40
+      high-utilization-percent: 80
+      refresh:
+        live-refresh-enabled: true
+        live-buffer-enabled: true
+        default-interval-ms: 5000
+        interval-options-ms: [3000, 5000, 10000, 30000]
+        change-flash-ms: 1400
+        success-message-auto-hide-ms: 1600
+        error-message-auto-hide-ms: 3200
+    ui:
+      hero-title: Reactor ASL Control Plane
+      hero-description: Manage governed service traffic, concurrency, async execution, and queue state from a single Spring Boot admin surface.
+      service-tab-note: Open this service workspace
+    services:
+      "mail.service":
+        methods:
+          "send(java.lang.String)":
+            max-concurrency: 6
+          "publishAudit(java.lang.String)":
+            execution-mode: ASYNC
+            consumer-threads: 2
+  async:
+    mapdb:
+      enabled: true
+      codec: jackson-json
+      path: ./data/asl-consumer-sample-queue.db
+      worker-shutdown-await-millis: 10000
+      registration-idle-sleep-millis: 100
+      empty-queue-sleep-millis: 50
+      requeue-delay-millis: 75
+      recovered-in-progress-message: Recovered stale in-progress invocation after restart
+      transactions-enabled: true
+      memory-mapped-enabled: false
+      reset-if-corrupt: true

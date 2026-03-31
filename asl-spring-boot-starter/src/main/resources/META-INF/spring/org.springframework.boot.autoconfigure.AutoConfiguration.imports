@@ -1,0 +1,2 @@
+com.reactor.asl.spring.boot.AslCoreAutoConfiguration
+com.reactor.asl.spring.boot.AslAdminAutoConfiguration

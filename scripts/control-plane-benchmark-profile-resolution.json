@@ -1,0 +1,15 @@
+{
+  "defaultProfile": "local",
+  "branchProfiles": [
+    { "pattern": "main", "profile": "ci" },
+    { "pattern": "master", "profile": "ci" },
+    { "pattern": "develop", "profile": "ci" },
+    { "pattern": "development", "profile": "ci" },
+    { "pattern": "release/*", "profile": "staging" },
+    { "pattern": "hotfix/*", "profile": "staging" }
+  ],
+  "tagProfiles": [
+    { "pattern": "v*", "profile": "staging" },
+    { "pattern": "release-*", "profile": "staging" }
+  ]
+}
