@@ -52,6 +52,195 @@ This keeps the fast path simple:
 - `asl-spring-boot-starter`: Spring Boot auto-config, admin UI, admin REST
 - `asl-sample`: reference usage
 
+## Step-by-Step: Use ASL In Your Own Spring Boot Project
+
+If you want to add ASL to an existing Spring Boot service, follow this order.
+
+### 1. Add the dependencies
+
+Add the starter and annotations to your application module:
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-spring-boot-starter</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-annotations</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+</dependencies>
+```
+
+If you build against the modules from the same workspace, you can keep using `${project.version}` instead of a fixed version.
+
+### 2. Add the annotation processor
+
+ASL generates wrappers at compile time, so your compiler must run `asl-processor`.
+
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+                <annotationProcessorPaths>
+                    <path>
+                        <groupId>com.reactor.asl</groupId>
+                        <artifactId>asl-processor</artifactId>
+                        <version>0.1.0</version>
+                    </path>
+                </annotationProcessorPaths>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+
+### 3. Put `@GovernedService` on the interface
+
+Annotate the service interface, not the implementation.
+
+```java
+@GovernedService(id = "mail.service")
+public interface MailService {
+    @GovernedMethod(initialMaxConcurrency = 4, unavailableMessage = "mail lane closed")
+    String send(String payload);
+
+    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 0, initialMaxConcurrency = 2)
+    void publishAudit(String event);
+
+    @Excluded
+    String health();
+}
+```
+
+### 4. Implement the interface normally
+
+Your business code stays in the implementation.
+
+```java
+@Service
+public class MailServiceImpl implements MailService {
+    @Override
+    public String send(String payload) {
+        return "sent:" + payload;
+    }
+
+    @Override
+    public void publishAudit(String event) {
+        // background-friendly work
+    }
+
+    @Override
+    public String health() {
+        return "UP";
+    }
+}
+```
+
+### 5. Inject the interface type in the rest of the app
+
+Inject `MailService`, not the generated wrapper class.
+
+```java
+@RestController
+@RequestMapping("/api/mails")
+public class MailController {
+    private final MailService mailService;
+
+    public MailController(MailService mailService) {
+        this.mailService = mailService;
+    }
+
+    @PostMapping("/{id}/publish-audit")
+    public void publishAudit(@PathVariable String id) {
+        mailService.publishAudit(id);
+    }
+}
+```
+
+At runtime, Spring injects the governed wrapper as the primary bean.
+
+### 6. Turn on the admin plane
+
+Add the minimal ASL properties:
+
+```yaml
+asl:
+  admin:
+    enabled: true
+    path: /asl
+    api-path: /asl/api
+```
+
+This gives you:
+
+- admin UI at `/asl`
+- admin REST at `/asl/api`
+
+### 7. Turn on the async queue if you want runtime async lanes
+
+If you want `asyncCapable = true` methods to be switchable to `ASYNC`, enable MapDB:
+
+```yaml
+asl:
+  async:
+    mapdb:
+      enabled: true
+      path: ./data/asl-queue.db
+      codec: jackson-json
+      transactions-enabled: true
+      memory-mapped-enabled: false
+      reset-if-corrupt: true
+```
+
+Without an async engine, `ASYNC` mode is not usable.
+
+### 8. Start the application and compile once
+
+Run a normal build first so the generated wrappers are produced:
+
+```powershell
+mvn clean package
+```
+
+Then start the application:
+
+```powershell
+mvn spring-boot:run
+```
+
+### 9. Open the control plane
+
+After startup:
+
+- open `http://localhost:8080/asl`
+- verify your service appears in the Services list
+- open the method detail panel
+
+### 10. Use async mode the intended way
+
+For an async-capable `void` method:
+
+1. set execution mode to `ASYNC`
+2. keep `consumerThreads = 0` if you want to accumulate backlog first
+3. raise `consumerThreads` when you want the queue to drain
+4. inspect failed entries in the buffer if execution fails
+5. replay or delete failed entries from the admin UI or REST API
+
+### 11. Keep these rules in mind
+
+- only `void` methods are runtime-async-switchable
+- result-returning methods must stay synchronous
+- use `@Excluded` for health and always-open utility methods
+- define explicit service and method ids if operators or external systems will target them
+- protect `/asl` and `/asl/api` with your own security configuration in production
+
 ## 4. Public Annotations
 
 ### `@GovernedService`

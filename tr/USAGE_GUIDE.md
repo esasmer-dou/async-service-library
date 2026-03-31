@@ -27,6 +27,195 @@ Temel hedef:
 - `asl-spring-boot-starter`
 - sample projeler
 
+## Kendi Spring Boot Projene Adim Adim Ekleme
+
+ASL'yi mevcut Spring Boot projesine eklemek istiyorsan su sirayi izle.
+
+### 1. Bagimliliklari ekle
+
+Uygulama moduline starter ve annotation bagimliliklarini ekle:
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-spring-boot-starter</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-annotations</artifactId>
+        <version>0.1.0</version>
+    </dependency>
+</dependencies>
+```
+
+Ayni workspace icindeki modullerle derliyorsan sabit versiyon yerine `${project.version}` kullanabilirsin.
+
+### 2. Annotation processor'u ekle
+
+ASL wrapper'lari derleme zamaninda urettigi icin `asl-processor` compiler'a baglanmalidir.
+
+```xml
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <configuration>
+                <annotationProcessorPaths>
+                    <path>
+                        <groupId>com.reactor.asl</groupId>
+                        <artifactId>asl-processor</artifactId>
+                        <version>0.1.0</version>
+                    </path>
+                </annotationProcessorPaths>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+
+### 3. Interface uzerine `@GovernedService` koy
+
+Annotation'i implementasyona degil interface'e koy.
+
+```java
+@GovernedService(id = "mail.service")
+public interface MailService {
+    @GovernedMethod(initialMaxConcurrency = 4, unavailableMessage = "mail lane closed")
+    String send(String payload);
+
+    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 0, initialMaxConcurrency = 2)
+    void publishAudit(String event);
+
+    @Excluded
+    String health();
+}
+```
+
+### 4. Implementasyonu normal sekilde yaz
+
+Is kurallari implementasyon sinifinda kalir.
+
+```java
+@Service
+public class MailServiceImpl implements MailService {
+    @Override
+    public String send(String payload) {
+        return "sent:" + payload;
+    }
+
+    @Override
+    public void publishAudit(String event) {
+        // arka plan icin uygun is
+    }
+
+    @Override
+    public String health() {
+        return "UP";
+    }
+}
+```
+
+### 5. Uygulamanin diger yerlerinde interface tipini inject et
+
+Generated wrapper sinifini degil, `MailService` interface'ini inject et.
+
+```java
+@RestController
+@RequestMapping("/api/mails")
+public class MailController {
+    private final MailService mailService;
+
+    public MailController(MailService mailService) {
+        this.mailService = mailService;
+    }
+
+    @PostMapping("/{id}/publish-audit")
+    public void publishAudit(@PathVariable String id) {
+        mailService.publishAudit(id);
+    }
+}
+```
+
+Runtime'da Spring primary bean olarak governed wrapper'i enjekte eder.
+
+### 6. Admin plane'i ac
+
+Minimal ASL ayarlarini ekle:
+
+```yaml
+asl:
+  admin:
+    enabled: true
+    path: /asl
+    api-path: /asl/api
+```
+
+Bununla birlikte sunlar acilir:
+
+- `/asl` altinda admin UI
+- `/asl/api` altinda admin REST
+
+### 7. Runtime async lane istiyorsan queue'yu ac
+
+`asyncCapable = true` olan metotlari runtime'da `ASYNC` moda alabilmek icin MapDB'yi ac:
+
+```yaml
+asl:
+  async:
+    mapdb:
+      enabled: true
+      path: ./data/asl-queue.db
+      codec: jackson-json
+      transactions-enabled: true
+      memory-mapped-enabled: false
+      reset-if-corrupt: true
+```
+
+Async engine yoksa `ASYNC` mod pratikte kullanilamaz.
+
+### 8. Uygulamayi bir kez derle ve baslat
+
+Generated wrapper'larin uretilmesi icin once normal build al:
+
+```powershell
+mvn clean package
+```
+
+Ardindan uygulamayi baslat:
+
+```powershell
+mvn spring-boot:run
+```
+
+### 9. Control plane'i ac
+
+Uygulama kalkinca:
+
+- `http://localhost:8080/asl` adresini ac
+- servisinin Services listesinde gorundugunu dogrula
+- metod detay panelini ac
+
+### 10. Async modu dogru sekilde kullan
+
+Async-capable bir `void` metot icin tipik akis:
+
+1. execution mode'u `ASYNC` yap
+2. backlog biriktirmek istiyorsan `consumerThreads = 0` birak
+3. kuyrugu bosaltmak istedigin zaman `consumerThreads` arttir
+4. calisma hatalarini buffer/failed bolumunden incele
+5. gerekirse failed entry'leri replay veya delete et
+
+### 11. Su kurallari unutma
+
+- runtime async gecisi sadece `void` metotlar icin vardir
+- response donduren metotlar sync kalmalidir
+- health ve her zaman acik kalmasi gereken yardimci metotlarda `@Excluded` kullan
+- operatorler veya dis sistemler hedefleyecekse explicit service/method id tanimla
+- production'da `/asl` ve `/asl/api` icin kendi security katmanini koy
+
 ## 4. Public Annotation’lar
 
 ### `@GovernedService`
