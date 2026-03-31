@@ -1,4 +1,4 @@
-name: MapDB Abuse Nightly
+name: Nightly Recovery Stress Test
 
 on:
   schedule:
@@ -17,7 +17,7 @@ on:
         type: string
 
 jobs:
-  mapdb-abuse-nightly:
+  recovery-stress-test:
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -32,14 +32,14 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Run MapDB Abuse Suite
+      - name: Run Recovery Stress Suite
         shell: powershell
         run: >
           .\scripts\run-mapdb-abuse-suite.ps1
           -BasePort ${{ github.event.inputs.base_port || '18180' }}
           -ReadyTimeoutSeconds ${{ github.event.inputs.ready_timeout_seconds || '60' }}
 
-      - name: Publish Job Summary
+      - name: Publish Run Summary
         if: always()
         shell: powershell
         run: |
@@ -55,7 +55,7 @@ jobs:
             "Expected summary not found: $summaryPath" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           }
 
-      - name: Upload MapDB Abuse Reports
+      - name: Upload Stress Test Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:

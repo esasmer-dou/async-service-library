@@ -1,4 +1,4 @@
-name: Publish Package
+name: Publish Maven Package
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   packages: write
 
 jobs:
-  publish:
+  publish-package:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,14 +29,7 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
-      - name: Resolve release version
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mvn -B -ntp versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
-
-      - name: Deploy to GitHub Packages
+      - name: Deploy Packages
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mvn -B -ntp -Ppublic-release deploy

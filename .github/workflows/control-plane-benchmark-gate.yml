@@ -1,4 +1,4 @@
-name: Control Plane Benchmark Gate
+name: Benchmark Gate
 
 on:
   workflow_dispatch:
@@ -99,7 +99,7 @@ jobs:
           java-version: '21'
           cache: maven
 
-      - name: Run Control-Plane Benchmark Gate
+      - name: Run Benchmark Gate
         shell: powershell
         run: >
           .\scripts\run-control-plane-benchmark-gate.ps1
@@ -108,7 +108,7 @@ jobs:
           -Warmup ${{ github.event.inputs.warmup || '1' }}
           -Iterations ${{ github.event.inputs.iterations || '3' }}
 
-      - name: Upload Benchmark Reports
+      - name: Upload Benchmark Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:

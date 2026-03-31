@@ -1,10 +1,10 @@
 # Async Service Library
 
-Async Service Library (ASL), servis metotlarini derleme zamaninda yoneten ve Spring Boot control plane uzerinden runtime'da isletebilen bir Java kutuphanesidir.
+Async Service Library (ASL), Java ve Spring Boot uygulamalarina servis metotlarini kontrollu sekilde calistirma, durdurma, yavaslatma, kuyruga alma ve izleme imkani verir.
 
-Bu kutuphane, yalnizca `@Async` seviyesinden daha fazla kontrol isteyen ama her isi bastan harici bir broker platformuna tasimak istemeyen ekipler icin tasarlandi.
+Yani yalnizca uygulama ici cagrilar ile tam harici workflow platformu arasinda durur: uygulama icine gomulecek kadar hafif, control plane uzerinden yonetilecek kadar disiplinlidir.
 
-## Ne Saglar
+## Temel Kabiliyetler
 
 - reflection agirlikli dispatch yerine derleme zamaninda uretilen wrapper'lar
 - runtime'da metot durdurma/baslatma ve concurrency limiti
@@ -88,7 +88,7 @@ Referans ve dogrulama icin sample moduller de vardir:
 - Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\README.md)
 - Ingilizce README: [README.md](E:\ReactorRepository\async-service-library\README.md)
 
-## Public Dagitim
+## Dagitim
 
 - GitHub repo: [github.com/esasmer-dou/async-service-library](https://github.com/esasmer-dou/async-service-library)
 - GitHub Packages: [maven.pkg.github.com/esasmer-dou/async-service-library](https://maven.pkg.github.com/esasmer-dou/async-service-library)

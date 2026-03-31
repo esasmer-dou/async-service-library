@@ -1,4 +1,4 @@
-name: Release
+name: Publish Release
 
 on:
   push:
@@ -11,7 +11,7 @@ permissions:
   packages: write
 
 jobs:
-  release:
+  publish-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -46,15 +46,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: mvn -B -ntp -Ppublic-release deploy
 
-      - name: Create source archive
+      - name: Create Source Archive
         shell: bash
         run: |
           git archive --format=zip --output="async-service-library-${RELEASE_VERSION}-sources.zip" HEAD
 
-      - name: Publish GitHub release
+      - name: Build Release Notes
+        shell: bash
+        run: |
+          cat > .github/release-notes.generated.md <<EOF
+          # Async Service Library v${RELEASE_VERSION}
+          
+          This release publishes the current public package and release line for Async Service Library.
+          
+          Included in this version:
+          
+          - compile-time governed service wrappers
+          - Spring Boot starter and admin control plane
+          - MapDB-backed async execution for \`void\` methods
+          - runtime concurrency, stop/start, replay, delete, and clear controls
+          - English and Turkish usage documentation
+          
+          Current boundary:
+          
+          - runtime \`SYNC -> ASYNC\` switching is supported for \`void\` methods only
+          
+          Start here:
+          
+          - README: https://github.com/esasmer-dou/async-service-library
+          - usage guide: https://github.com/esasmer-dou/async-service-library/blob/main/USAGE_GUIDE.md
+          - sample app: https://github.com/esasmer-dou/async-service-library/tree/main/asl-consumer-sample
+          EOF
+
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body_path: .github/release-notes.generated.md
           files: |
             async-service-library-${{ env.RELEASE_VERSION }}-sources.zip
             asl-annotations/target/*.jar
