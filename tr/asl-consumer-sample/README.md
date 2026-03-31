@@ -124,8 +124,10 @@ Detayli senaryolar:
 
 - benchmark scriptleri sample queue durumunu resetlemeye calisir
 - `-StartSample` ile acilan benchmark akisi artik ana demo queue dosyasini kullanmaz; izole queue yolu `reports/real-sample/sample-runtime/benchmark-queue.db` altinda acilir
+- varsayilan benchmark portu doluysa suite artik bos bir loopback portunu otomatik secer
 - benchmark suite sadece kendisinin baslattigi sample surecini kapatir; disaridan calisan sample'i zorla kapatmaz
 - yavas ortamlarda `ASL_BENCHMARK_READY_TIMEOUT_SECONDS` arttirilabilir
+- startup yine basarisiz olursa suite sample stdout/stderr loglarinin son kismini hata ciktisina ekler
 - sample uygulama MapDB'yi guvenlik agirlikli ayarlarla acar: `transactions-enabled=true` ve `memory-mapped-enabled=false`
 - sample uygulamada `asl.async.mapdb.reset-if-corrupt=true` aciktir; bozuk demo queue dosyasi acilista arsivlenip yerine temiz store olusturulur
 - header corruption durumunda bozuk dosya `*.corrupt-*` olarak kenara alinur; dosya temiz tasinamiyorsa uygulama yeni bir recovery queue dosyasina duser

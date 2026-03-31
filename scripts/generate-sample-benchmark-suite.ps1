@@ -10,6 +10,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $OutputDirectory = Join-Path $PSScriptRoot "..\reports\real-sample"
+}
+
 $mailServiceId = "mail.service"
 $mailMethodId = "publishAudit(java.lang.String)"
 $customerServiceId = "customer.service"
@@ -40,11 +44,20 @@ function Invoke-OptionalJsonPost {
 function Wait-ForEndpoint {
     param(
         [string]$Uri,
-        [int]$TimeoutSeconds = 120
+        [int]$TimeoutSeconds = 120,
+        [System.Diagnostics.Process]$ObservedProcess = $null,
+        [string]$StandardOutputPath = "",
+        [string]$StandardErrorPath = ""
     )
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
+        if ($null -ne $ObservedProcess -and $ObservedProcess.HasExited) {
+            $stdoutTail = Get-ProcessLogTail -Path $StandardOutputPath
+            $stderrTail = Get-ProcessLogTail -Path $StandardErrorPath
+            throw ("Endpoint did not become ready because the sample process exited early (exit code {0}). URI: {1}`n--- stdout tail ---`n{2}`n--- stderr tail ---`n{3}" -f $ObservedProcess.ExitCode, $Uri, $stdoutTail, $stderrTail)
+        }
+
         try {
             $response = Invoke-RestMethod -Uri $Uri -Method Get
             if ($null -ne $response) {
@@ -55,7 +68,9 @@ function Wait-ForEndpoint {
         Start-Sleep -Seconds 2
     }
 
-    throw "Endpoint did not become ready within $TimeoutSeconds seconds: $Uri"
+    $stdoutTail = Get-ProcessLogTail -Path $StandardOutputPath
+    $stderrTail = Get-ProcessLogTail -Path $StandardErrorPath
+    throw ("Endpoint did not become ready within {0} seconds: {1}`n--- stdout tail ---`n{2}`n--- stderr tail ---`n{3}" -f $TimeoutSeconds, $Uri, $stdoutTail, $stderrTail)
 }
 
 function Wait-ForCondition {
@@ -74,6 +89,42 @@ function Wait-ForCondition {
     }
 
     throw $FailureMessage
+}
+
+function Get-ProcessLogTail {
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path $Path)) {
+        return "(no log output)"
+    }
+
+    $content = @(Get-Content -Path $Path -Tail 80 -ErrorAction SilentlyContinue)
+    if ($content.Count -eq 0) {
+        return "(no log output)"
+    }
+
+    return ($content -join [Environment]::NewLine)
+}
+
+function Get-AvailableBaseUrl {
+    param([Uri]$PreferredUri)
+
+    $existingListener = Get-NetTCPConnection -LocalPort $PreferredUri.Port -State Listen -ErrorAction SilentlyContinue
+    if (-not $existingListener) {
+        return $PreferredUri
+    }
+
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        $port = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+
+    $replacement = [Uri]("{0}://{1}:{2}" -f $PreferredUri.Scheme, $PreferredUri.Host, $port)
+    Write-Host ("Preferred benchmark port {0} is busy. Using ephemeral port {1} instead." -f $PreferredUri.Port, $port)
+    return $replacement
 }
 
 function Run-Benchmark {
@@ -179,28 +230,29 @@ $sampleRuntimeDirectory = Join-Path $OutputDirectory "sample-runtime"
 $sampleQueuePath = Join-Path $sampleRuntimeDirectory "benchmark-queue.db"
 $sampleQueuePattern = Join-Path $sampleRuntimeDirectory "benchmark-queue.db*"
 
-if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
-    $OutputDirectory = Join-Path $PSScriptRoot "..\reports\real-sample"
-}
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $sampleRuntimeDirectory -Force | Out-Null
 
 try {
     if ($StartSample) {
+        $targetUri = Get-AvailableBaseUrl -PreferredUri $targetUri
+        $baseUri = $targetUri.AbsoluteUri.TrimEnd("/")
         & mvn.cmd "-pl" "asl-spring-boot-starter,asl-consumer-sample" "-am" "-DskipTests" "install" | Out-Null
 
         $sampleLogPath = Join-Path $OutputDirectory "sample-run.log"
         $sampleErrorLogPath = Join-Path $OutputDirectory "sample-run.err.log"
         Remove-Item $sampleQueuePattern -Force -ErrorAction SilentlyContinue
-        $startedProcess = Start-Process -FilePath "mvn.cmd" `
-            -ArgumentList "-f", "asl-consumer-sample/pom.xml", "-am", ("-Dspring-boot.run.arguments=--server.port={0} --asl.async.mapdb.path={1}" -f $targetUri.Port, ($sampleQueuePath -replace "\\", "/")), "spring-boot:run" `
+        $escapedQueuePath = ($sampleQueuePath -replace "\\", "/")
+        $bootstrapCommand = ('set "SERVER_PORT={0}" && set "ASL_ASYNC_MAPDB_PATH={1}" && mvn.cmd -f "asl-consumer-sample/pom.xml" -am spring-boot:run' -f $targetUri.Port, $escapedQueuePath)
+        $startedProcess = Start-Process -FilePath "cmd.exe" `
+            -ArgumentList "/c", $bootstrapCommand `
             -WorkingDirectory (Join-Path $PSScriptRoot "..") `
             -RedirectStandardOutput $sampleLogPath `
             -RedirectStandardError $sampleErrorLogPath `
             -PassThru
     }
 
-    Wait-ForEndpoint -Uri "$baseUri/api/health" -TimeoutSeconds $ReadyTimeoutSeconds
+    Wait-ForEndpoint -Uri "$baseUri/api/health" -TimeoutSeconds $ReadyTimeoutSeconds -ObservedProcess $startedProcess -StandardOutputPath $sampleLogPath -StandardErrorPath $sampleErrorLogPath
     Reset-BenchmarkBaseline -TargetBaseUrl $baseUri
 
     $idleReport = Join-Path $OutputDirectory "control-plane-benchmark-sample-idle.md"

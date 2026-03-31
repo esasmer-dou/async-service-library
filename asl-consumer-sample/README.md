@@ -238,12 +238,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-control-plane-benchmark-g
 ```
 
 If you want the script to boot the sample itself without competing for a busy local `8080`, it will default to `http://localhost:18080` unless you override `-BaseUrl`.
+If that local benchmark port is already busy, the suite now auto-selects a free loopback port instead of waiting for a dead endpoint.
 The suite now performs an automatic baseline reset before the idle report.
 When `-StartSample` is used, the benchmark runner boots the sample with an isolated runtime queue under `reports/real-sample/sample-runtime/benchmark-queue.db`, so benchmark force-stop behavior does not corrupt the main demo queue at `./data/asl-consumer-sample-queue.db`.
 The suite only stops the sample process when it started that process itself.
 Available gate profiles are `local`, `ci`, and `staging`.
 You can also inject profile overrides via `ASL_BENCHMARK_*` environment variables or load extra profile files through `ASL_BENCHMARK_EXTRA_THRESHOLDS_PATHS`.
 If the sample boots slowly in CI or staging, raise `ASL_BENCHMARK_READY_TIMEOUT_SECONDS`.
+If startup still fails, the suite now prints the tail of the sample stdout/stderr logs directly in the failure output.
 If no profile is given, the gate can now resolve one from release tags and branch names via `control-plane-benchmark-profile-resolution.json`.
 
 Run the destructive MapDB abuse suite against an isolated sample runtime:
