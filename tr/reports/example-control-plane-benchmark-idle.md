@@ -1,14 +1,14 @@
-# Ornek Kontrol Duzlemi Benchmark Raporu - Idle
+# Örnek Kontrol Paneli Benchmark Raporu - Idle
 
-Bu rapor, saglikli idle durumda beklenen sinyalleri gosterir.
+Bu rapor, sistem sakin durumdayken beklenen kontrol paneli sinyallerini gösterir.
 
 ## Beklenen Durum
 
-- overall pressure: `LOW`
-- queue depth: `0`
-- failed entries: `0`
-- admin summary gecikmeleri threshold altinda
+- Overall pressure: `LOW`
+- Queue depth: `0`
+- Failed entry sayısı: `0`
+- Admin summary gecikmeleri eşik değerlerin altında
 
 ## Yorum
 
-Bu gorunum, queue sızıntisi veya onceki kosudan kalan stale durum olmadigini gostermelidir.
+Bu görünüm, önceki çalıştırmadan kalan stale queue kaydı olmadığını ve kontrol panelinin boş/sakin durumu doğru raporladığını göstermelidir.

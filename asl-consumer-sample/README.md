@@ -29,7 +29,7 @@ The sample starts on:
 
 ## Runtime Configuration Surface
 
-The sample ships with the main out-of-the-box runtime knobs already externalized in [`application.yml`](E:\ReactorRepository\async-service-library\asl-consumer-sample\src\main\resources\application.yml):
+The sample ships with the main out-of-the-box runtime knobs already externalized in [`application.yml`](src/main/resources/application.yml):
 
 ```yaml
 asl:
@@ -211,7 +211,7 @@ Use the sample to validate these operational flows:
 
 The integration suite covers these flows in:
 
-- [AslConsumerSampleIntegrationTest.java](E:\ReactorRepository\async-service-library\asl-consumer-sample\src\test\java\com\reactor\asl\consumer\sample\AslConsumerSampleIntegrationTest.java)
+- [AslConsumerSampleIntegrationTest.java](src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleIntegrationTest.java)
 
 ## Benchmarking The Control Plane
 
@@ -269,12 +269,12 @@ Generated reports are written locally / as CI artifacts under:
 
 The same destructive suite now runs in nightly CI:
 
-- [mapdb-abuse-nightly.yml](E:\ReactorRepository\async-service-library\.github\workflows\mapdb-abuse-nightly.yml)
+- [mapdb-abuse-nightly.yml](../.github/workflows/mapdb-abuse-nightly.yml)
 
 Related references:
 
-- [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\USAGE_GUIDE.md)
-- [reports/README.md](E:\ReactorRepository\async-service-library\reports\README.md)
+- [USAGE_GUIDE.md](../USAGE_GUIDE.md)
+- [reports/README.md](../reports/README.md)
 
 ## Chaos And Recovery
 
@@ -287,12 +287,12 @@ The sample also includes restart-based recovery tests around a self-contained as
 
 Relevant tests:
 
-- [AslConsumerSampleChaosRecoveryTest.java](E:\ReactorRepository\async-service-library\asl-consumer-sample\src\test\java\com\reactor\asl\consumer\sample\AslConsumerSampleChaosRecoveryTest.java)
-- [MapDbAsyncExecutionEngineCoverageTest.java](E:\ReactorRepository\async-service-library\asl-mapdb\src\test\java\com\reactor\asl\mapdb\MapDbAsyncExecutionEngineCoverageTest.java)
+- [AslConsumerSampleChaosRecoveryTest.java](src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleChaosRecoveryTest.java)
+- [MapDbAsyncExecutionEngineCoverageTest.java](../asl-mapdb/src/test/java/com/reactor/asl/mapdb/MapDbAsyncExecutionEngineCoverageTest.java)
 
 Manual walkthrough:
 
-- [CHAOS_TEST_GUIDE.md](E:\ReactorRepository\async-service-library\asl-consumer-sample\CHAOS_TEST_GUIDE.md)
+- [CHAOS_TEST_GUIDE.md](CHAOS_TEST_GUIDE.md)
 
 ## Notes
 

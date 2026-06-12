@@ -1,8 +1,8 @@
 # ASL Chaos Test Rehberi
 
-Bu rehber, sample uygulama uzerinde operator ve gelistirici tarafinda denenebilecek temel kaos ve toparlanma senaryolarini Turkce ozetler.
+Bu rehber, sample uygulama üzerinde denenebilecek temel kaos ve toparlanma senaryolarını açıklar. Amaç, async queue davranışının normal çalışma, hata, replay, restart ve zorla kill durumlarında nasıl tepki verdiğini görmektir.
 
-JVM'i zorla olduren ve rapor ureten otomatik suite icin:
+Otomatik destructive suite:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\run-mapdb-abuse-suite.ps1
@@ -10,89 +10,100 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-mapdb-abuse-suite.ps1
 
 ## Kapsam
 
-Amaç:
+Bu senaryolar özellikle şu davranışları gözlemlemek için kullanılır:
 
-- async basari
-- zorlanmis hata
-- replay
-- pending queue birikimi
-- consumer resize
-- stop/reject traffic
-- restart recovery
-- graceful shutdown
-- zorla JVM kill ile pending persistence
-- zorla JVM kill ile failed persistence
-- in-progress sirasinda kill
-- ayni queue dosyasinda tekrarli kill / restart dongusu
-- kasitli header corruption startup recovery
+- Başarılı async enqueue ve consume akışı.
+- Bilerek üretilen async hata.
+- Failed entry replay.
+- Pending queue birikimi.
+- Consumer thread resize sonrası queue drain.
+- Metot durdurulduğunda traffic reject davranışı.
+- Restart sonrası pending ve failed queue durumunun korunması.
+- Graceful shutdown sırasında in-flight işlerin ele alınması.
+- JVM zorla öldürüldüğünde queue dosyasının yeniden açılabilir kalması.
+- Stale `IN_PROGRESS` kayıtların recovery sırasında failed duruma çekilmesi.
+- Bilerek bozulan MapDB header dosyasında startup recovery davranışı.
 
-senaryolarini gozlemlemek.
+## Ortak Kontrol Noktaları
 
-## Paylasilan Yardimcilar
+Her senaryoda şu sinyalleri birlikte oku:
 
-Senaryolarda kullanilan ortak kavramlar:
-
-- ilgili service/method lane secimi
-- admin UI veya REST ile runtime mutasyonu
-- summary ve queue sinyalleriyle dogrulama
+- Service ve method lane seçimi doğru mu?
+- Method `SYNC` mi `ASYNC` mi?
+- Consumer thread sayısı beklenen değerde mi?
+- Queue depth artıyor mu, azalıyor mu?
+- Failed entry oluştu mu?
+- Admin summary pressure seviyesi doğru mu?
+- Replay veya clear sonrası state beklenen hâle geldi mi?
 
 ## Temel Senaryolar
 
-### 1. Async success
+### 1. Async başarı akışı
 
-Normal enqueue-consume akisi beklenir.
+Async-capable bir `void` metodu `ASYNC` moda al. Consumer thread sayısını `1` veya daha yüksek bir değere çıkar. Çağrıdan sonra queue’nun kısa süre içinde boşalması ve success sayacının artması beklenir.
 
-### 2. Forced async failure
+### 2. Bilerek async hata üretme
 
-Failed queue veya error attention beklenir.
+Scenario endpoint üzerinden `failuresRemaining` değerini artır. Metodu çağır. İşin failed buffer’a düşmesi ve method error sayacının artması beklenir.
 
-### 3. Replay failed entry
+### 3. Failed entry replay
 
-Replay sonrasi queue ve hata sayisi yeniden gozlenir.
+Failed buffer’daki kaydı replay et. Hata koşulu kaldırılmışsa kaydın tekrar pending duruma alınması, worker tarafından işlenmesi ve queue’dan düşmesi beklenir.
 
-### 4. Pending queue buildup
+### 4. Pending queue birikimi
 
-Consumer yetersizligi veya kontrollu gecikme ile backlog olusturulur.
+Consumer thread sayısını `0` yap veya processing delay ekle. Arka arkaya çağrı gönder. Queue depth değerinin kontrollü biçimde yükselmesi beklenir.
 
-### 5. Consumer resize and drain
+### 5. Consumer resize ve drain
 
-Consumer artisi sonrasi queue’nun bosalma hizi izlenir.
+Pending queue biriktikten sonra consumer thread sayısını artır. Queue depth değerinin azalması, processed/success sinyallerinin yükselmesi beklenir.
 
-### 6. Stop method and reject traffic
+### 6. Metodu durdurma ve traffic reject
 
-Method durduruldugunda traffic rejection davranisi izlenir.
+Metodu disable et. Yeni çağrıların queue’ya yazılmadan reddedilmesi gerekir. Bu davranış, sistem baskı altındayken yeni iş kabulünü kapatmak için kullanılır.
 
-### 7. Restart recovery for pending queue
+### 7. Pending queue ile restart
 
-Restart sonrasi stale state temizligi ve devam eden islerin toparlanmasi izlenir.
+Queue’da pending iş bırakıp uygulamayı restart et. Açılıştan sonra queue state korunmalı ve consumer açıldığında işler tüketilebilmelidir.
 
-### 8. Restart recovery for failed queue
+### 8. Failed queue ile restart
 
-Failed queue davranisinin tutarliligi kontrol edilir.
+Failed entry oluşturup uygulamayı restart et. Failed kayıt restart sonrası da görünür olmalı ve replay/delete işlemleri yapılabilmelidir.
 
-### 9. Graceful shutdown drain
+### 9. Graceful shutdown
 
-Shutdown sirasinda queue ve in-flight islerin dogru ele alinmasi beklenir.
+Uygulamayı normal shutdown ile kapat. Worker shutdown bekleme süresi içinde in-flight işler kontrollü şekilde ele alınmalıdır.
 
-### 10. Engine-level stale in-progress recovery
+### 10. Stale `IN_PROGRESS` recovery
 
-Motor seviyesinde yarim kalan islerin toparlanmasi dogrulanir.
+İş `IN_PROGRESS` durumundayken JVM’i zorla öldüren destructive suite’i çalıştır. Restart sonrası stale kayıtların recovery mesajıyla failed duruma alınması beklenir.
 
-## Onerilen Sira
+## Önerilen Çalıştırma Sırası
 
-1. Async success
-2. Forced failure
-3. Replay
-4. Pending buildup
-5. Resize and drain
-6. Stop / reject
-7. Restart recovery
+1. Async başarı akışı.
+2. Bilerek async hata üretme.
+3. Failed entry replay.
+4. Pending queue birikimi.
+5. Consumer resize ve drain.
+6. Metot disable ve traffic reject.
+7. Restart recovery.
+8. Destructive MapDB abuse suite.
 
-## UI Kullanimi
+## Admin UI ile İzleme
 
-Admin panelden:
+Admin panelde:
 
-- servis sec
-- ilgili method lane’e gir
-- queue preview ve attention sinyallerini izle
-- gerekli runtime aksiyonunu uygula
+- Önce servis kartlarındaki queue depth, failed ve pressure sinyallerini kontrol et.
+- Sonra ilgili metot detayını aç.
+- Buffer bölümünde pending, failed ve in-progress kayıtları izle.
+- Replay, delete veya clear işlemini yalnızca ilgili state’i gördükten sonra uygula.
+
+## Beklenen Sonuç
+
+Bu senaryolar başarılıysa sample uygulama şu davranışları göstermelidir:
+
+- JVM kill sonrası uygulama fatal startup hatasıyla kalmamalı.
+- Bozuk demo queue dosyası policy izin veriyorsa arşivlenmeli veya recovery path’e geçilmelidir.
+- Admin UI recovery durumunu banner ile göstermelidir.
+- Failed işler görünür, replay edilebilir ve silinebilir olmalıdır.
+- Pending backlog operatör tarafından consumer thread artırılarak eritilebilmelidir.

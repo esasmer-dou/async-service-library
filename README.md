@@ -1,32 +1,36 @@
 # Async Service Library
 
-Async Service Library (ASL) gives Java and Spring Boot applications a controlled way to run, pause, throttle, queue, and observe service methods.
+**Language:** English | [Turkish](tr/README.md)
 
-It sits between plain in-process service calls and a full external workflow platform: lightweight enough to embed in an application, but structured enough to operate from a control plane.
+Async Service Library (ASL) gives Java and Spring Boot applications a controlled way to run, pause, throttle, queue, and observe service methods at runtime.
+
+ASL is not a workflow engine. It is a lightweight in-process control layer for service methods that need operational guardrails without introducing a separate orchestration platform.
 
 ## Core Capabilities
 
-- compile-time generated wrappers instead of reflection-heavy interception
-- runtime method stop/start and concurrency limits
-- queue-backed async execution for `void` methods
-- replay, delete, clear, and consumer-thread controls
-- Spring Boot admin UI at `/asl`
-- REST control plane at `/asl/api`
+- Compile-time generated wrappers instead of reflection-heavy dispatch.
+- Runtime method start/stop and max-concurrency control.
+- Queue-backed async execution for selected `void` methods.
+- Replay, delete, clear, and consumer-thread controls for queued work.
+- Spring Boot admin UI at `/asl`.
+- REST control plane at `/asl/api`.
 
-## Good Fit
+## When ASL Fits
 
-ASL works well when you need to:
+Use ASL when you need to:
 
-- throttle or pause specific service methods without redeploying
-- turn selected `void` methods into managed async lanes
-- inspect queue depth, failed entries, and pressure from a single admin surface
-- keep async behavior inside the application boundary
+- Pause or throttle specific service methods without redeploying.
+- Protect expensive or failure-prone integrations with runtime limits.
+- Turn selected `void` methods into managed async lanes.
+- Inspect queue depth, failed entries, in-progress work, and pressure from one admin surface.
+- Keep async behavior inside the application boundary before adopting a heavier workflow platform.
 
 ## Current Boundaries
 
-- runtime async switching is supported for `void` methods only
-- one Spring stereotype implementation is expected per governed interface
-- admin security is not auto-configured by the library
+- Runtime `SYNC -> ASYNC` switching is supported for `void` methods only.
+- Result-returning methods can be governed, stopped, and throttled, but they must remain synchronous.
+- One Spring stereotype implementation is expected per governed interface.
+- Admin security is not auto-configured. Protect `/asl` and `/asl/api` with your application security configuration in production.
 
 ## Quick Example
 
@@ -51,6 +55,7 @@ public class MailServiceImpl implements MailService {
 
     @Override
     public void publish(String event) {
+        // Work that is safe to queue and consume later.
     }
 }
 ```
@@ -70,13 +75,13 @@ asl:
 
 ## Modules
 
-- `asl-annotations`
-- `asl-core`
-- `asl-processor`
-- `asl-mapdb`
-- `asl-spring-boot-starter`
+- `asl-annotations`: Public annotations.
+- `asl-core`: Runtime governance model.
+- `asl-processor`: Compile-time wrapper generation.
+- `asl-mapdb`: Persistent async queue engine.
+- `asl-spring-boot-starter`: Spring Boot auto-configuration, admin UI, and REST control plane.
 
-Sample and validation modules are also included for reference and verification:
+Sample and validation modules:
 
 - `asl-sample`
 - `asl-consumer-sample`
@@ -84,10 +89,12 @@ Sample and validation modules are also included for reference and verification:
 
 ## Start Here
 
-- usage guide: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\USAGE_GUIDE.md)
-  Includes the full list of overrideable properties, their defaults, and omitted-property behavior.
-- Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\asl-consumer-sample\README.md)
-- Turkish docs: [tr/README.md](E:\ReactorRepository\async-service-library\tr\README.md)
+- Project overview: English | [Turkish](tr/README.md)
+- Usage guide: [English](USAGE_GUIDE.md) | [Turkish](tr/USAGE_GUIDE.md)
+- Spring Boot sample: [English](asl-consumer-sample/README.md) | [Turkish](tr/asl-consumer-sample/README.md)
+- Benchmark reports: [English](reports/README.md) | [Turkish](tr/reports/README.md)
+
+The usage guide includes dependency setup, GitHub Packages configuration, annotation processor setup, runtime configuration, every overrideable property, default values, and omitted-property behavior.
 
 ## Distribution
 

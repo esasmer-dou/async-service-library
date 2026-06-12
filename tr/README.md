@@ -1,34 +1,39 @@
 # Async Service Library
 
-Async Service Library (ASL), Java ve Spring Boot uygulamalarina servis metotlarini kontrollu sekilde calistirma, durdurma, yavaslatma, kuyruga alma ve izleme imkani verir.
+**Language:** [English](../README.md) | Turkish
 
-Yani yalnizca uygulama ici cagrilar ile tam harici workflow platformu arasinda durur: uygulama icine gomulecek kadar hafif, control plane uzerinden yonetilecek kadar disiplinlidir.
+Async Service Library (ASL), Java ve Spring Boot uygulamalarında servis metotlarını çalışma anında yönetilebilir hale getirir. Belirli metotları durdurabilir, tekrar açabilir, eş zamanlı çalışma limitlerini değiştirebilir, uygun `void` metotları kuyruğa alabilir ve bu davranışı admin arayüzünden izleyebilirsin.
 
-## Temel Kabiliyetler
+ASL bir workflow motoru değildir. Ama yalnızca normal servis çağrısı da değildir. Uygulamanın içine gömülebilecek kadar hafif, operasyon sırasında müdahale edilebilecek kadar kontrollü bir ara katmandır.
 
-- reflection agirlikli dispatch yerine derleme zamaninda uretilen wrapper'lar
-- runtime'da metot durdurma/baslatma ve concurrency limiti
-- `void` metotlar icin queue tabanli async calisma
-- replay, delete, clear ve consumer-thread kontrolu
-- `/asl` altinda Spring Boot admin arayuzu
-- `/asl/api` altinda REST control plane
+## Neler Sağlar?
 
-## Ne Zaman Uygun
+- Reflection ağırlıklı dispatch yerine derleme zamanında üretilen wrapper sınıfları kullanır.
+- Metot bazında başlatma, durdurma ve maksimum concurrency kontrolü sağlar.
+- `void` metotlar için kuyruk tabanlı `ASYNC` çalışma modunu destekler.
+- Kuyruk kayıtlarını görüntüleme, silme, temizleme ve başarısız işleri tekrar çalıştırma imkânı verir.
+- Consumer thread sayısını çalışma anında değiştirebilir.
+- Spring Boot admin arayüzünü varsayılan olarak `/asl` altında açar.
+- REST tabanlı kontrol yüzeyini varsayılan olarak `/asl/api` altında sunar.
 
-ASL su durumlarda iyi oturur:
+## Ne Zaman Kullanılır?
 
-- belirli servis metotlarini redeploy etmeden yavaslatmak veya durdurmak istiyorsan
-- secili `void` metotlari yonetilebilir async lane'e cevirmek istiyorsan
-- queue depth, failed entry ve pressure bilgisini tek panelden gormek istiyorsan
-- async davranisi uygulama siniri icinde tutmak istiyorsan
+ASL şu senaryolarda anlamlıdır:
 
-## Mevcut Sinirlar
+- Belirli bir servis metodunu redeploy yapmadan geçici olarak durdurmak istiyorsan.
+- Dış sistem çağrısı, bildirim gönderimi veya event publish gibi riskli akışları kontrollü şekilde yavaşlatmak istiyorsan.
+- Seçilmiş `void` metotları gerektiğinde senkron çalıştırıp gerektiğinde kuyruğa almak istiyorsan.
+- Queue depth, failed entry, in-progress iş ve pressure bilgisini tek panelden görmek istiyorsan.
+- Kafka, Temporal veya ayrı bir workflow platformu kurmadan önce daha hafif bir uygulama içi kontrol katmanı istiyorsan.
 
-- runtime async gecisi sadece `void` metotlar icin desteklenir
-- governed interface basina tek Spring stereotype implementasyonu beklenir
-- admin security kutuphane tarafinda otomatik kurulmaz
+## Bilerek Koyulan Sınırlar
 
-## Hizli Ornek
+- Runtime sırasında `SYNC -> ASYNC` geçişi yalnızca `void` metotlar için desteklenir.
+- Response dönen metotlar yönetilebilir, durdurulabilir ve concurrency limitine alınabilir; fakat async moda geçirilemez.
+- Her governed interface için Spring tarafında tek bir stereotype implementasyonu beklenir.
+- Admin endpoint güvenliği otomatik kurulmaz. Production ortamında `/asl` ve `/asl/api` mutlaka uygulamanın kendi security katmanıyla korunmalıdır.
+
+## Hızlı Örnek
 
 ```java
 @GovernedService(id = "mail.service")
@@ -51,6 +56,7 @@ public class MailServiceImpl implements MailService {
 
     @Override
     public void publish(String event) {
+        // Kuyruğa alınmaya uygun iş mantığı.
     }
 }
 ```
@@ -68,32 +74,34 @@ asl:
       codec: jackson-json
 ```
 
-## Moduller
+## Modüller
 
-- `asl-annotations`
-- `asl-core`
-- `asl-processor`
-- `asl-mapdb`
-- `asl-spring-boot-starter`
+- `asl-annotations`: Kullanıcıya açık annotation tanımları.
+- `asl-core`: Runtime governance modeli.
+- `asl-processor`: Derleme zamanında wrapper üreten annotation processor.
+- `asl-mapdb`: Kalıcı async kuyruk motoru.
+- `asl-spring-boot-starter`: Spring Boot auto-configuration, admin UI ve REST yüzeyi.
 
-Referans ve dogrulama icin sample moduller de vardir:
+Örnek ve doğrulama amaçlı modüller:
 
 - `asl-sample`
 - `asl-consumer-sample`
 - `asl-coverage`
 
-## Buradan Basla
+## Nereden Başlamalı?
 
-- kullanim rehberi: [USAGE_GUIDE.md](E:\ReactorRepository\async-service-library\tr\USAGE_GUIDE.md)
-  Override edilebilen tum property'leri, default degerlerini ve set edilmezse nasil davranacaklarini burada bulabilirsin.
-- Spring Boot sample: [asl-consumer-sample/README.md](E:\ReactorRepository\async-service-library\tr\asl-consumer-sample\README.md)
-- Ingilizce README: [README.md](E:\ReactorRepository\async-service-library\README.md)
+- Proje özeti: [English](../README.md) | Turkish
+- Kullanım rehberi: [English](../USAGE_GUIDE.md) | [Turkish](USAGE_GUIDE.md)
+- Spring Boot sample rehberi: [English](../asl-consumer-sample/README.md) | [Turkish](asl-consumer-sample/README.md)
+- Benchmark raporları: [English](../reports/README.md) | [Turkish](reports/README.md)
 
-## Dagitim
+Kullanım rehberinde dependency ekleme, GitHub Packages ayarı, annotation processor kurulumu, runtime ayarları, tüm override edilebilir property’ler ve default davranışlar anlatılır.
 
-- GitHub repo: [github.com/esasmer-dou/async-service-library](https://github.com/esasmer-dou/async-service-library)
+## Dağıtım
+
+- GitHub repository: [github.com/esasmer-dou/async-service-library](https://github.com/esasmer-dou/async-service-library)
 - GitHub Packages: [maven.pkg.github.com/esasmer-dou/async-service-library](https://maven.pkg.github.com/esasmer-dou/async-service-library)
-- Release sayfasi: [github.com/esasmer-dou/async-service-library/releases](https://github.com/esasmer-dou/async-service-library/releases)
+- Release sayfası: [github.com/esasmer-dou/async-service-library/releases](https://github.com/esasmer-dou/async-service-library/releases)
 
 ## Build
 
