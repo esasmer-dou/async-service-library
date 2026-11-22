@@ -72,7 +72,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.version>5.10.2</junit.version>
         <mapdb.version>3.1.0</mapdb.version>
-        <spring.boot.version>3.3.5</spring.boot.version>
+        <spring.boot.version>4.1.2</spring.boot.version>
         <jacoco.version>0.8.14</jacoco.version>
         <micrometer.version>1.13.6</micrometer.version>
         <jmh.version>1.37</jmh.version>
