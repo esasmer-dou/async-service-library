@@ -10,30 +10,6 @@ asl:
   runtime:
     default-unavailable-message: Method is disabled
     max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
-  admin:
-    enabled: true
-    path: /asl
-    api-path: /asl/api
-    buffer-preview-limit: 50
-    security:
-      allow-unauthenticated: true
-      audit-reads: false
-    dashboard:
-      attention-limit: 8
-      medium-utilization-percent: 40
-      high-utilization-percent: 80
-      refresh:
-        live-refresh-enabled: true
-        live-buffer-enabled: true
-        default-interval-ms: 5000
-        interval-options-ms: [3000, 5000, 10000, 30000]
-        change-flash-ms: 1400
-        success-message-auto-hide-ms: 1600
-        error-message-auto-hide-ms: 3200
-    ui:
-      hero-title: Reactor ASL Control Plane
-      hero-description: Manage governed service traffic, concurrency, async execution, and queue state from a single Spring Boot admin surface.
-      service-tab-note: Open this service workspace
     services:
       "mail.service":
         methods:
@@ -42,6 +18,13 @@ asl:
           "publishAudit(java.lang.String)":
             execution-mode: ASYNC
             consumer-threads: 2
+  admin:
+    # Central admin server connection. Off by default; turn it on with
+    # ASL_ADMIN_CLIENT_ENABLED=true, ASL_ADMIN_CLIENT_SERVER_URL and ASL_ADMIN_CLIENT_SECRET.
+    client:
+      enabled: false
+      application: asl-consumer-sample
+      queue-browse: true
   async:
     mapdb:
       enabled: true

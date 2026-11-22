@@ -1,17 +1,20 @@
 package com.reactor.asl.consumer.sample;
 
+import com.reactor.asl.core.ExecutionMode;
+import com.reactor.asl.core.GovernanceRegistry;
+import com.reactor.asl.core.MethodBufferSnapshot;
+import com.reactor.asl.core.MethodRuntime;
+import com.reactor.asl.mapdb.MapDbAsyncExecutionEngine;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -181,68 +184,54 @@ class AslConsumerSampleChaosRecoveryTest {
         }
 
         void switchMode(String serviceId, String methodId, String executionMode) {
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    baseUrl + adminUri("/asl/api/services/{serviceId}/methods/{methodId}/mode", serviceId, methodId),
-                    Map.of("executionMode", executionMode),
-                    String.class
-            );
-            assertEquals(HttpStatus.OK, response.getStatusCode());
+            MethodRuntime runtime = registry().service(serviceId).methodById(methodId);
+            runtime.switchMode(ExecutionMode.valueOf(executionMode));
+            engine().applyRuntime(runtime);
         }
 
         void resizeConsumers(String serviceId, String methodId, int consumerThreads) {
-            ResponseEntity<String> response = restTemplate.postForEntity(
-                    baseUrl + adminUri("/asl/api/services/{serviceId}/methods/{methodId}/consumer-threads", serviceId, methodId),
-                    Map.of("consumerThreads", consumerThreads),
-                    String.class
-            );
-            assertEquals(HttpStatus.OK, response.getStatusCode());
+            MethodRuntime runtime = registry().service(serviceId).methodById(methodId);
+            runtime.setConsumerThreads(consumerThreads);
+            engine().applyRuntime(runtime);
         }
 
         void replay(String serviceId, String methodId, String entryId) {
-            ResponseEntity<Void> response = restTemplate.postForEntity(
-                    baseUrl + adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}/replay", serviceId, methodId, entryId),
-                    null,
-                    Void.class
-            );
-            assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
+            assertTrue(engine().replay(serviceId, methodId, entryId));
         }
 
-        int pendingCount(String serviceId, String methodId) {
-            return ((Number) bufferSnapshot(serviceId, methodId).get("pendingCount")).intValue();
+        long pendingCount(String serviceId, String methodId) {
+            return bufferSnapshot(serviceId, methodId).pendingCount();
         }
 
-        int failedCount(String serviceId, String methodId) {
-            return ((Number) bufferSnapshot(serviceId, methodId).get("failedCount")).intValue();
+        long failedCount(String serviceId, String methodId) {
+            return bufferSnapshot(serviceId, methodId).failedCount();
         }
 
-        int inProgressCount(String serviceId, String methodId) {
-            return ((Number) bufferSnapshot(serviceId, methodId).get("inProgressCount")).intValue();
+        long inProgressCount(String serviceId, String methodId) {
+            return bufferSnapshot(serviceId, methodId).inProgressCount();
         }
 
-        int totalBuffered(String serviceId, String methodId) {
-            Map<String, Object> snapshot = bufferSnapshot(serviceId, methodId);
-            return ((Number) snapshot.get("pendingCount")).intValue()
-                    + ((Number) snapshot.get("failedCount")).intValue()
-                    + ((Number) snapshot.get("inProgressCount")).intValue();
+        long totalBuffered(String serviceId, String methodId) {
+            MethodBufferSnapshot snapshot = bufferSnapshot(serviceId, methodId);
+            return snapshot.pendingCount() + snapshot.failedCount() + snapshot.inProgressCount();
         }
 
-        @SuppressWarnings("unchecked")
         String firstEntryId(String serviceId, String methodId) {
-            List<Map<String, Object>> entries = (List<Map<String, Object>>) bufferSnapshot(serviceId, methodId).get("entries");
-            assertFalse(entries.isEmpty());
-            return String.valueOf(entries.getFirst().get("entryId"));
+            MethodBufferSnapshot snapshot = bufferSnapshot(serviceId, methodId);
+            assertFalse(snapshot.entries().isEmpty());
+            return snapshot.entries().getFirst().entryId();
         }
 
-        @SuppressWarnings("unchecked")
-        private Map<String, Object> bufferSnapshot(String serviceId, String methodId) {
-            ResponseEntity<Map> response = restTemplate.exchange(
-                    baseUrl + adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer", serviceId, methodId),
-                    HttpMethod.GET,
-                    HttpEntity.EMPTY,
-                    Map.class
-            );
-            assertEquals(HttpStatus.OK, response.getStatusCode());
-            return response.getBody();
+        private MethodBufferSnapshot bufferSnapshot(String serviceId, String methodId) {
+            return engine().snapshot(serviceId, methodId, 50);
+        }
+
+        private GovernanceRegistry registry() {
+            return context.getBean(GovernanceRegistry.class);
+        }
+
+        private MapDbAsyncExecutionEngine engine() {
+            return context.getBean(MapDbAsyncExecutionEngine.class);
         }
 
         void waitFor(Check check, int timeoutSeconds) {
@@ -264,13 +253,6 @@ class AslConsumerSampleChaosRecoveryTest {
         @Override
         public void close() {
             context.close();
-        }
-
-        private static String adminUri(String template, Object... variables) {
-            return UriComponentsBuilder.fromPath(template)
-                    .buildAndExpand(variables)
-                    .encode()
-                    .toUriString();
         }
     }
 

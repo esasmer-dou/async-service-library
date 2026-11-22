@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -72,6 +73,10 @@ final class MapDbQueueStore implements QueueStore {
     private final BTreeMap<String, String> idempotencyExpiryIndex;
     private final HTreeMap<String, Long> metadata;
     private final Map<Integer, LaneStats> laneStats = new HashMap<>();
+    /** Lane counters as of the last commit; read without the store monitor (admin heartbeat, metrics). */
+    private final ConcurrentHashMap<String, LaneCounts> committedCounts = new ConcurrentHashMap<>();
+    private final Map<Integer, String> laneKeysById = new HashMap<>();
+    private final Set<Integer> dirtyLanes = new HashSet<>();
     private long totalEntries;
     private long totalPayloadBytes;
     private boolean batching;
@@ -482,6 +487,16 @@ final class MapDbQueueStore implements QueueStore {
 
     @Override
     public MethodBufferSnapshot snapshot(String serviceId, String methodId, int limit) {
+        if (limit <= 0) {
+            // Counts only: served from the last committed counters, so a heartbeat or a metrics
+            // scrape never waits on (or delays) the writer, claim or lease paths.
+            ensureReadable();
+            LaneCounts counts = committedCounts.get(laneKey(serviceId, methodId));
+            return counts == null
+                    ? new MethodBufferSnapshot(serviceId, methodId, true, 0, 0, 0, List.of())
+                    : new MethodBufferSnapshot(serviceId, methodId, true,
+                            counts.pending() + counts.retryWait(), counts.failed(), counts.inProgress(), List.of());
+        }
         return guardedRead(() -> unguardedSnapshot(serviceId, methodId, limit));
     }
 
@@ -744,6 +759,7 @@ final class MapDbQueueStore implements QueueStore {
         long next = nextMetadataValue(META_NEXT_LANE_ID, MAX_LANE_ID, "lane id");
         int laneId = Math.toIntExact(next);
         laneIds.put(laneKey, laneId);
+        laneKeysById.put(laneId, laneKey);
         laneServices.put(laneId, serviceId);
         laneMethods.put(laneId, methodId);
         LaneStats stats = new LaneStats();
@@ -888,18 +904,54 @@ final class MapDbQueueStore implements QueueStore {
 
     private void loadStatsCache() {
         laneStats.clear();
+        laneKeysById.clear();
+        dirtyLanes.clear();
         totalEntries = 0L;
         totalPayloadBytes = 0L;
         for (Map.Entry<Integer, byte[]> entry : persistedLaneStats.entrySet()) {
             LaneStats stats = LaneStats.decode(entry.getValue());
             laneStats.put(entry.getKey(), stats);
+            String service = laneServices.get(entry.getKey());
+            String method = laneMethods.get(entry.getKey());
+            if (service != null && method != null) {
+                laneKeysById.put(entry.getKey(), laneKey(service, method));
+            }
             totalEntries += stats.entries;
             totalPayloadBytes += stats.payloadBytes;
         }
+        republishAllCounts();
+    }
+
+    /** Rebuilds the lock-free counters from the in-memory cache, which matches the committed state here. */
+    private void republishAllCounts() {
+        Map<String, LaneCounts> fresh = new HashMap<>();
+        for (Map.Entry<Integer, String> lane : laneKeysById.entrySet()) {
+            LaneStats stats = laneStats.get(lane.getKey());
+            if (stats != null) {
+                fresh.put(lane.getValue(), stats.counts());
+            }
+        }
+        committedCounts.putAll(fresh);
+        committedCounts.keySet().retainAll(fresh.keySet());
+    }
+
+    private void publishCommittedCounts() {
+        if (dirtyLanes.isEmpty()) {
+            return;
+        }
+        for (Integer laneId : dirtyLanes) {
+            String key = laneKeysById.get(laneId);
+            LaneStats stats = laneStats.get(laneId);
+            if (key != null && stats != null) {
+                committedCounts.put(key, stats.counts());
+            }
+        }
+        dirtyLanes.clear();
     }
 
     private void persistStats(int laneId, LaneStats stats) {
         persistedLaneStats.put(laneId, stats.encode());
+        dirtyLanes.add(laneId);
     }
 
     private long nextMetadataValue(String key, long max, String description) {
@@ -923,6 +975,7 @@ final class MapDbQueueStore implements QueueStore {
         }
         try {
             db.commit();
+            publishCommittedCounts();
         } catch (RuntimeException commitFailure) {
             RuntimeException failure = new AsyncAdmissionRejectedException(
                     AsyncAdmissionRejectedException.Reason.STORAGE_FAILURE,
@@ -1173,6 +1226,10 @@ final class MapDbQueueStore implements QueueStore {
         private long payloadBytes;
         private long version;
 
+        private LaneCounts counts() {
+            return new LaneCounts(pending, inProgress, retryWait, failed);
+        }
+
         private void add(AsyncInvocationState state, long payloadLength) {
             increment(state, 1L);
             entries++;
@@ -1239,6 +1296,9 @@ final class MapDbQueueStore implements QueueStore {
             stats.verifyNonNegative();
             return stats;
         }
+    }
+
+    private record LaneCounts(long pending, long inProgress, long retryWait, long failed) {
     }
 
     private record IdempotencyTombstone(long invocationId, long expiresAtEpochMillis) {

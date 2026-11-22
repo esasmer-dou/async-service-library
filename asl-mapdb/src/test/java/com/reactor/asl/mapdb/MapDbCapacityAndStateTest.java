@@ -4,6 +4,7 @@ import com.reactor.asl.core.AsyncAdmissionRejectedException;
 import com.reactor.asl.core.ExecutionMode;
 import com.reactor.asl.core.GovernanceRegistry;
 import com.reactor.asl.core.JavaObjectStreamAsyncPayloadCodec;
+import com.reactor.asl.core.MethodBufferSnapshot;
 import com.reactor.asl.core.MethodDescriptor;
 import com.reactor.asl.core.MethodRuntime;
 import com.reactor.asl.core.ServiceDescriptor;
@@ -166,6 +167,59 @@ class MapDbCapacityAndStateTest {
         } finally {
             release.countDown();
         }
+    }
+
+    @Test
+    void countOnlySnapshotMatchesFullSnapshotAndDoesNotWaitForTheStoreMonitor() throws Exception {
+        MethodRuntime runtime = runtime("count.service", "publish(java.lang.String)");
+
+        try (MapDbAsyncExecutionEngine engine = engine("count.db", optionsBuilder().build())) {
+            GovernanceRegistry registry = registry(engine, runtime, arguments -> { });
+            assertEquals(0, engine.snapshot(runtime.serviceId(), runtime.methodId(), 0).pendingCount());
+            registry.enqueueAsync(runtime, new Object[]{"first"});
+            registry.enqueueAsync(runtime, new Object[]{"second"});
+
+            MethodBufferSnapshot full = engine.snapshot(runtime.serviceId(), runtime.methodId(), 10);
+            MethodBufferSnapshot counts = engine.snapshot(runtime.serviceId(), runtime.methodId(), 0);
+            assertEquals(full.pendingCount(), counts.pendingCount());
+            assertEquals(full.inProgressCount(), counts.inProgressCount());
+            assertEquals(full.failedCount(), counts.failedCount());
+            assertTrue(counts.entries().isEmpty());
+
+            Object monitor = storeMonitor(engine);
+            CountDownLatch held = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            Thread holder = new Thread(() -> {
+                synchronized (monitor) {
+                    held.countDown();
+                    try {
+                        release.await(10, TimeUnit.SECONDS);
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            });
+            holder.start();
+            try {
+                assertTrue(held.await(5, TimeUnit.SECONDS));
+                CompletableFuture<MethodBufferSnapshot> read = CompletableFuture.supplyAsync(
+                        () -> engine.snapshot(runtime.serviceId(), runtime.methodId(), 0)
+                );
+                assertEquals(full.pendingCount(), read.get(2, TimeUnit.SECONDS).pendingCount());
+            } finally {
+                release.countDown();
+                holder.join();
+            }
+        }
+    }
+
+    private static Object storeMonitor(MapDbAsyncExecutionEngine engine) throws Exception {
+        java.lang.reflect.Field storeField = MapDbAsyncExecutionEngine.class.getDeclaredField("queueStore");
+        storeField.setAccessible(true);
+        Object store = storeField.get(engine);
+        java.lang.reflect.Field monitorField = MapDbQueueStore.class.getDeclaredField("monitor");
+        monitorField.setAccessible(true);
+        return monitorField.get(store);
     }
 
     private MapDbAsyncExecutionEngine engine(String fileName, MapDbAsyncExecutionOptions options) {

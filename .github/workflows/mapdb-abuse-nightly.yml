@@ -33,7 +33,7 @@ jobs:
           cache: maven
 
       - name: Run Recovery Stress Suite
-        shell: powershell
+        shell: pwsh
         run: >
           .\scripts\run-mapdb-abuse-suite.ps1
           -BasePort ${{ github.event.inputs.base_port || '18180' }}

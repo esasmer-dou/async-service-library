@@ -60,7 +60,6 @@
         <module>asl-processor</module>
         <module>asl-spring-boot-core-starter</module>
         <module>asl-spring-boot-mapdb-starter</module>
-        <module>asl-spring-boot-admin-starter</module>
         <module>asl-spring-boot-admin-client-starter</module>
         <module>asl-admin-server</module>
         <module>asl-spring-boot-starter</module>

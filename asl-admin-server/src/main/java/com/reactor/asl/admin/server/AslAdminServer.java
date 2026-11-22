@@ -35,6 +35,7 @@ public final class AslAdminServer implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger(AslAdminServer.class.getName());
     static final String UI = "/asl-admin";
     private static final String API = UI + "/api";
+    private static final int WRITE_CHUNK = 16 * 1024;
     private static final String CSP = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
             + "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'";
 
@@ -101,8 +102,8 @@ public final class AslAdminServer implements AutoCloseable {
         maintenance.scheduleWithFixedDelay(() -> {
             try {
                 registry.maintain(clock.millis());
-            } catch (RuntimeException exception) {
-                LOG.log(System.Logger.Level.WARNING, "ASL admin maintenance failed", exception);
+            } catch (RuntimeException | OutOfMemoryError failure) {
+                LOG.log(System.Logger.Level.WARNING, "ASL admin maintenance failed", failure);
             }
         }, every, every, TimeUnit.MILLISECONDS);
         if (store.historyEnabled()) {
@@ -114,8 +115,8 @@ public final class AslAdminServer implements AutoCloseable {
             maintenance.scheduleWithFixedDelay(() -> {
                 try {
                     store.trimAudit(clock.millis() - config.auditRetention.toMillis());
-                } catch (RuntimeException exception) {
-                    LOG.log(System.Logger.Level.WARNING, "ASL admin audit trim failed", exception);
+                } catch (RuntimeException | OutOfMemoryError failure) {
+                    LOG.log(System.Logger.Level.WARNING, "ASL admin audit trim failed", failure);
                 }
             }, 1, 10, TimeUnit.MINUTES);
         }
@@ -128,9 +129,10 @@ public final class AslAdminServer implements AutoCloseable {
             long now = clock.millis();
             long step = config.historyResolution.toMillis();
             long bucket = now / step;
-            store.recordHistory(bucket, bucket * step, registry.historySamples());
-        } catch (RuntimeException exception) {
-            LOG.log(System.Logger.Level.WARNING, "ASL admin history write failed", exception);
+            store.recordHistory(bucket, bucket * step, registry.historySamples(store::acceptsSeries));
+        } catch (RuntimeException | OutOfMemoryError failure) {
+            // An escaping Throwable would cancel this periodic task for good; log and try again next step.
+            LOG.log(System.Logger.Level.WARNING, "ASL admin history write failed", failure);
         }
     }
 
@@ -245,6 +247,13 @@ public final class AslAdminServer implements AutoCloseable {
         } catch (RuntimeException exception) {
             LOG.log(System.Logger.Level.WARNING, "ASL admin UI request failed", exception);
             sendError(exchange, 500, "Internal error");
+        } catch (OutOfMemoryError exception) {
+            LOG.log(System.Logger.Level.WARNING, "ASL admin UI response did not fit in the heap; raise -Xmx", exception);
+            try {
+                sendError(exchange, 503, "Server heap too small for this view; raise -Xmx");
+            } catch (RuntimeException | IOException | OutOfMemoryError ignored) {
+                exchange.close();
+            }
         }
     }
 
@@ -454,7 +463,11 @@ public final class AslAdminServer implements AutoCloseable {
         }
         exchange.sendResponseHeaders(status, body.length);
         try (OutputStream output = exchange.getResponseBody()) {
-            output.write(body);
+            // The JDK server copies each write into a buffer of the same size; small writes keep a
+            // large portal response from needing a second full-size copy on a small heap.
+            for (int offset = 0; offset < body.length; offset += WRITE_CHUNK) {
+                output.write(body, offset, Math.min(WRITE_CHUNK, body.length - offset));
+            }
         }
     }
 }

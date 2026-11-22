@@ -392,14 +392,28 @@ public final class InstanceRegistry {
         }
     }
 
+    /** Decides, before anything is copied, whether a replica/method pair is kept as a history series. */
+    @FunctionalInterface
+    public interface SeriesFilter {
+        boolean accepts(String application, String instance, MethodKey method);
+    }
+
     /** Hands the latest raw values of every replica to the history store, unchanged. */
     public List<AdminStore.HistorySample> historySamples() {
+        return historySamples((application, instance, method) -> true);
+    }
+
+    /**
+     * Same, but copies only the pairs the filter accepts. With many replicas most pairs are past
+     * {@code history.max-series}; copying them anyway costs heap on every step for nothing.
+     */
+    public List<AdminStore.HistorySample> historySamples(SeriesFilter filter) {
         List<AdminStore.HistorySample> samples = new ArrayList<>();
         for (AppState app : apps.values()) {
             synchronized (app) {
                 for (InstanceState instance : app.instances.values()) {
                     for (int i = 0; i < instance.catalog.size(); i++) {
-                        if (instance.seen[i]) {
+                        if (instance.seen[i] && filter.accepts(app.name, instance.name, instance.keys[i])) {
                             samples.add(new AdminStore.HistorySample(app.name, instance.name, instance.keys[i], instance.values[i].clone()));
                         }
                     }

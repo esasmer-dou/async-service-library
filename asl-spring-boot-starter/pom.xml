@@ -11,7 +11,7 @@
 
     <artifactId>asl-spring-boot-starter</artifactId>
     <name>asl-spring-boot-starter</name>
-    <description>Compatibility starter that combines ASL core, MapDB, and admin starters</description>
+    <description>Compatibility starter that combines the ASL core, MapDB, and admin-client starters</description>
 
     <dependencies>
         <dependency>
@@ -26,7 +26,7 @@
         </dependency>
         <dependency>
             <groupId>com.reactor.asl</groupId>
-            <artifactId>asl-spring-boot-admin-starter</artifactId>
+            <artifactId>asl-spring-boot-admin-client-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

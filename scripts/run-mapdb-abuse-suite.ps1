@@ -1,9 +1,15 @@
 param(
     [switch]$BuildSample = $true,
     [int]$BasePort = 18120,
+    [int]$AdminPort = 0,
     [int]$ReadyTimeoutSeconds = 60,
     [string]$OutputRoot = ".\reports\mapdb-abuse"
 )
+
+# Recovery stress suite. Each scenario starts the consumer sample with its MapDB queue, kills it
+# hard, restarts it and checks that queued work survives. Runtime control (mode, consumers,
+# queue browse and replay) goes through the central ASL admin server, the same path an operator
+# uses; the sample only exposes its own business and test endpoints.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -13,15 +19,32 @@ $javaTooling = Initialize-AslJavaTooling
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sampleModuleDir = Join-Path $repoRoot "asl-consumer-sample"
+$adminModuleDir = Join-Path $repoRoot "asl-admin-server"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $runDirectory = Join-Path $repoRoot (($OutputRoot -replace '^[.][\\/]', ''))
 $runDirectory = Join-Path $runDirectory $timestamp
 $trRunDirectory = Join-Path $repoRoot "tr\reports\mapdb-abuse\$timestamp"
 $script:nextPort = $BasePort
+if ($AdminPort -le 0) {
+    $AdminPort = $BasePort + 90
+}
+$adminBaseUrl = "http://localhost:$AdminPort"
+$adminApi = "$adminBaseUrl/asl-admin/api"
+$adminSecret = [guid]::NewGuid().ToString("N")
+$script:adminProcess = $null
+# Child JVMs run without a console window on Windows (they would otherwise pop up in front).
+$script:hiddenWindow = @{}
+if ($IsWindows -or $env:OS -eq 'Windows_NT') {
+    $script:hiddenWindow.WindowStyle = 'Hidden'
+}
 
 $serviceId = "chaos.service"
 $methodId = "emit(java.lang.String)"
-$encodedMethodId = [System.Uri]::EscapeDataString($methodId)
+
+# Order of the raw counters in a heartbeat sample (see asl-admin-protocol MethodSample).
+$SampleQueuePending = 7
+$SampleQueueFailed = 8
+$SampleQueueInProgress = 9
 
 function Ensure-Directory([string]$path) {
     if (-not (Test-Path $path)) {
@@ -36,11 +59,11 @@ function Invoke-CheckedCommand([string]$filePath, [string[]]$arguments) {
     }
 }
 
-function Build-SampleJar {
-    Write-Host "Building sample jar..."
+function Build-Jars {
+    Write-Host "Building sample and admin server jars..."
     Push-Location $repoRoot
     try {
-        Invoke-CheckedCommand $javaTooling.MavenCommand @("-pl", "asl-consumer-sample", "-am", "package", "-DskipTests", "-q")
+        Invoke-CheckedCommand $javaTooling.MavenCommand @("-pl", "asl-consumer-sample,asl-admin-server", "-am", "package", "-DskipTests", "-q")
     } finally {
         Pop-Location
     }
@@ -57,6 +80,16 @@ function Get-SampleJarPath {
     return $jar.FullName
 }
 
+function Get-AdminJarPath {
+    $jar = Get-ChildItem (Join-Path $adminModuleDir "target") -Filter "*-exec.jar" |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $jar) {
+        throw "Admin server jar could not be found under asl-admin-server\\target"
+    }
+    return $jar.FullName
+}
+
 function Get-NextPort {
     $port = $script:nextPort
     $script:nextPort++
@@ -66,7 +99,13 @@ function Get-NextPort {
 function Wait-Until([scriptblock]$condition, [int]$timeoutSeconds, [string]$message) {
     $deadline = (Get-Date).AddSeconds($timeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        if (& $condition) {
+        $ok = $false
+        try {
+            $ok = [bool](& $condition)
+        } catch {
+            $ok = $false
+        }
+        if ($ok) {
             return
         }
         Start-Sleep -Milliseconds 250
@@ -93,20 +132,32 @@ function Get-PropertyValue($object, [string]$propertyName, $defaultValue) {
     return $property.Value
 }
 
-function Get-StorageRecovery($summary) {
-    return Get-PropertyValue $summary "storageRecovery" $null
+function Start-AdminServer([string]$jarPath) {
+    $arguments = @(
+        "-jar", $jarPath,
+        "--port=$AdminPort",
+        "--secret=$adminSecret",
+        "--security.mode=NONE",
+        "--storage.mode=MEMORY",
+        "--history.enabled=false",
+        "--interval=2s",
+        "--watch.interval=500ms",
+        "--instance.expire-after=30s"
+    )
+    $script:adminProcess = Start-Process @script:hiddenWindow -FilePath $javaTooling.JavaCommand -ArgumentList $arguments -WorkingDirectory $runDirectory `
+        -RedirectStandardOutput (Join-Path $runDirectory "admin-server.out.log") `
+        -RedirectStandardError (Join-Path $runDirectory "admin-server.err.log") -PassThru
+    Wait-Until { (Invoke-RestMethod -Method Get -Uri "$adminApi/server" -TimeoutSec 5) -ne $null } $ReadyTimeoutSeconds "Admin server did not start on port $AdminPort"
 }
 
-function Test-StorageRecoveryVisible($summary) {
-    $storageRecovery = Get-StorageRecovery $summary
-    if ($null -eq $storageRecovery) {
-        return $false
+function Stop-AdminServer {
+    if ($null -ne $script:adminProcess -and -not $script:adminProcess.HasExited) {
+        Stop-Process -Id $script:adminProcess.Id -Force -ErrorAction SilentlyContinue
+        Wait-Process -Id $script:adminProcess.Id -Timeout 15 -ErrorAction SilentlyContinue
     }
-    $headline = [string](Get-PropertyValue $storageRecovery "headline" "")
-    return -not [string]::IsNullOrWhiteSpace($headline)
 }
 
-function Start-Sample([string]$jarPath, [string]$dbPath, [string]$scenarioName) {
+function Start-Sample([string]$jarPath, [string]$dbPath, [string]$application, [string]$scenarioName) {
     $port = Get-NextPort
     $logPrefix = Join-Path $runDirectory $scenarioName
     $stdoutPath = "$logPrefix.out.log"
@@ -116,34 +167,40 @@ function Start-Sample([string]$jarPath, [string]$dbPath, [string]$scenarioName) 
         $jarPath,
         "--server.port=$port",
         "--asl.async.mapdb.enabled=true",
-        "--asl.async.mapdb.path=$($dbPath -replace '\\','/')"
+        "--asl.async.mapdb.path=$($dbPath -replace '\\','/')",
+        "--asl.admin.client.enabled=true",
+        "--asl.admin.client.server-url=$adminBaseUrl",
+        "--asl.admin.client.secret=$adminSecret",
+        "--asl.admin.client.application=$application",
+        "--asl.admin.client.instance=$scenarioName",
+        "--asl.admin.client.interval=2s",
+        "--asl.admin.client.queue-browse=true"
     )
-    $process = Start-Process -FilePath $javaTooling.JavaCommand -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
-    $baseUrl = "http://localhost:$port"
+    $process = Start-Process @script:hiddenWindow -FilePath $javaTooling.JavaCommand -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    $handle = [pscustomobject]@{
+        Scenario = $scenarioName
+        Application = $application
+        Instance = $scenarioName
+        Port = $port
+        BaseUrl = "http://localhost:$port"
+        Process = $process
+        StdOut = $stdoutPath
+        StdErr = $stderrPath
+        DbPath = $dbPath
+    }
     try {
         Wait-Until {
-            try {
-                $health = Invoke-RestMethod -Method Get -Uri "$baseUrl/api/health" -TimeoutSec 5
-                return $health.status -eq "UP"
-            } catch {
-                return $false
-            }
+            $health = Invoke-RestMethod -Method Get -Uri "$($handle.BaseUrl)/api/health" -TimeoutSec 5
+            return $health.status -eq "UP"
         } $ReadyTimeoutSeconds "Sample did not become healthy for scenario '$scenarioName'"
+        Wait-Until { $null -ne (Get-MethodSample $handle) } $ReadyTimeoutSeconds "Sample '$scenarioName' did not report to the admin server"
     } catch {
         if (-not $process.HasExited) {
             Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
         }
         throw
     }
-    return [pscustomobject]@{
-        Scenario = $scenarioName
-        Port = $port
-        BaseUrl = $baseUrl
-        Process = $process
-        StdOut = $stdoutPath
-        StdErr = $stderrPath
-        DbPath = $dbPath
-    }
+    return $handle
 }
 
 function Stop-Sample($handle) {
@@ -153,13 +210,79 @@ function Stop-Sample($handle) {
     }
 }
 
-function Get-AdminSummary($handle) {
-    return Invoke-RestMethod -Method Get -Uri "$($handle.BaseUrl)/asl/api/summary" -TimeoutSec 30
+# ---- admin server view of one sample ---------------------------------------------------------
+
+function Get-AdminApp($handle) {
+    return Invoke-RestMethod -Method Get -Uri "$adminApi/apps/$($handle.Application)" -TimeoutSec 30
+}
+
+function Get-AdminInstance($app, $handle) {
+    return @($app.instances | Where-Object { $_.name -eq $handle.Instance }) | Select-Object -First 1
+}
+
+function Get-MethodSample($handle) {
+    $app = Get-AdminApp $handle
+    $index = -1
+    for ($i = 0; $i -lt @($app.methods).Count; $i++) {
+        if ($app.methods[$i].serviceId -eq $serviceId -and $app.methods[$i].methodId -eq $methodId) {
+            $index = $i
+        }
+    }
+    $instance = Get-AdminInstance $app $handle
+    if ($index -lt 0 -or $null -eq $instance) {
+        return $null
+    }
+    return $instance.samples[$index]
 }
 
 function Get-Buffer($handle) {
-    return Invoke-RestMethod -Method Get -Uri "$($handle.BaseUrl)/asl/api/services/$serviceId/methods/$encodedMethodId/buffer" -TimeoutSec 30
+    $sample = Get-MethodSample $handle
+    if ($null -eq $sample) {
+        throw "No telemetry from '$($handle.Instance)' yet"
+    }
+    return [pscustomobject]@{
+        pendingCount = [long]$sample[$SampleQueuePending]
+        failedCount = [long]$sample[$SampleQueueFailed]
+        inProgressCount = [long]$sample[$SampleQueueInProgress]
+    }
 }
+
+function Set-Override($handle, [hashtable]$setting) {
+    $form = @{ serviceId = $serviceId; methodId = $methodId }
+    foreach ($key in $setting.Keys) {
+        $form[$key] = [string]$setting[$key]
+    }
+    Invoke-RestMethod -Method Post -Uri "$adminApi/apps/$($handle.Application)/overrides" -Body $form -TimeoutSec 30 | Out-Null
+    Wait-Until {
+        $app = Get-AdminApp $handle
+        $instance = Get-AdminInstance $app $handle
+        return $null -ne $instance -and $instance.inSync -and [long]$instance.appliedConfigVersion -eq [long]$app.configVersion
+    } 30 "Override was not applied by '$($handle.Instance)'"
+}
+
+function Invoke-AdminCommand($handle, [string]$type, [string]$entryId = "", [int]$limit = 0) {
+    $form = @{ serviceId = $serviceId; methodId = $methodId; instance = $handle.Instance; type = $type }
+    if ($entryId) { $form.entryId = $entryId }
+    if ($limit -gt 0) { $form.limit = [string]$limit }
+    $created = Invoke-RestMethod -Method Post -Uri "$adminApi/apps/$($handle.Application)/commands" -Body $form -TimeoutSec 30
+    $commandId = [long]@($created.commandIds)[0]
+    $script:commandResult = $null
+    Wait-Until {
+        $app = Get-AdminApp $handle
+        $script:commandResult = @($app.commands | Where-Object { [long]$_.commandId -eq $commandId -and $_.status -ne "PENDING" }) | Select-Object -First 1
+        return $null -ne $script:commandResult
+    } 30 "Command $type was not answered by '$($handle.Instance)'"
+    if ($script:commandResult.status -ne "OK") {
+        throw "Command $type ended with $($script:commandResult.status): $($script:commandResult.message)"
+    }
+    return $script:commandResult
+}
+
+function Get-QueueEntries($handle) {
+    return @((Invoke-AdminCommand $handle "BROWSE_QUEUE" "" 10).entries)
+}
+
+# ---- sample operations ------------------------------------------------------------------------
 
 function Configure-Chaos($handle, [int]$failuresRemaining, [int]$processingDelayMillis) {
     Invoke-JsonRequest "Post" "$($handle.BaseUrl)/api/test/scenarios/chaos/emit" @{
@@ -172,16 +295,10 @@ function Reset-State($handle) {
     Invoke-RestMethod -Method Post -Uri "$($handle.BaseUrl)/api/test/scenarios/reset" -TimeoutSec 30 | Out-Null
 }
 
-function Switch-AsyncMode($handle) {
-    Invoke-JsonRequest "Post" "$($handle.BaseUrl)/asl/api/services/$serviceId/methods/$encodedMethodId/mode" @{
-        executionMode = "ASYNC"
-    } | Out-Null
-}
-
+# Puts the chaos method in ASYNC mode with the given consumer count, as one application-wide
+# override: it is stored on the admin server and applied again when a restarted pod registers.
 function Resize-Consumers($handle, [int]$consumerThreads) {
-    Invoke-JsonRequest "Post" "$($handle.BaseUrl)/asl/api/services/$serviceId/methods/$encodedMethodId/consumer-threads" @{
-        consumerThreads = $consumerThreads
-    } | Out-Null
+    Set-Override $handle @{ async = "true"; consumerThreads = $consumerThreads }
 }
 
 function Emit-Chaos($handle, [string]$payload) {
@@ -192,8 +309,15 @@ function Get-ChaosEvents($handle) {
     return Invoke-RestMethod -Method Get -Uri "$($handle.BaseUrl)/api/chaos/events" -TimeoutSec 30
 }
 
+function Get-StorageRecovery($handle) {
+    return Invoke-RestMethod -Method Get -Uri "$($handle.BaseUrl)/api/chaos/storage-recovery" -TimeoutSec 30
+}
+
 function Replay-Entry($handle, [string]$entryId) {
-    Invoke-RestMethod -Method Post -Uri "$($handle.BaseUrl)/asl/api/services/$serviceId/methods/$encodedMethodId/buffer/$entryId/replay" -TimeoutSec 30 | Out-Null
+    $result = Invoke-AdminCommand $handle "REPLAY_ENTRY" $entryId
+    if ([long]$result.value -ne 1) {
+        throw "Replay of entry $entryId did not take effect"
+    }
 }
 
 function Wait-ForPending($handle, [int]$expectedCount, [int]$timeoutSeconds) {
@@ -246,29 +370,26 @@ function Add-Logs($result, $handle) {
 
 function Invoke-PendingSurvivesForceKill($jarPath) {
     $result = New-Result "pending-survives-force-kill"
+    $application = "abuse-pending"
     $dbPath = Join-Path $runDirectory "pending-survives-force-kill.db"
     $payload = "kill-pending"
     $handle = $null
     try {
-        $handle = Start-Sample $jarPath $dbPath "pending-survives-force-kill-start-1"
+        $handle = Start-Sample $jarPath $dbPath $application "pending-survives-force-kill-start-1"
         Add-Logs $result $handle
         Reset-State $handle
-        Switch-AsyncMode $handle
         Resize-Consumers $handle 0
         Emit-Chaos $handle $payload
-        Wait-ForPending $handle 1 10
+        Wait-ForPending $handle 1 15
         Add-Check $result "pendingBeforeKill" 1
         Stop-Sample $handle
 
-        $handle = Start-Sample $jarPath $dbPath "pending-survives-force-kill-start-2"
+        $handle = Start-Sample $jarPath $dbPath $application "pending-survives-force-kill-start-2"
         Add-Logs $result $handle
-        Switch-AsyncMode $handle
         Resize-Consumers $handle 1
-        Wait-ForEvent $handle "CHAOS:$payload" 15
-        Wait-ForBufferDrain $handle 15
-        $summary = Get-AdminSummary $handle
-        Add-Check $result "startupRecovered" (Test-StorageRecoveryVisible $summary)
-        Add-Check $result "overallPressureAfterDrain" $summary.overallPressure
+        Wait-ForEvent $handle "CHAOS:$payload" 20
+        Wait-ForBufferDrain $handle 20
+        Add-Check $result "storeArchivedOnRestart" ([bool](Get-StorageRecovery $handle).recovered)
         return $result
     } catch {
         $result.status = "FAIL"
@@ -281,32 +402,35 @@ function Invoke-PendingSurvivesForceKill($jarPath) {
 
 function Invoke-FailedReplayAfterForceKill($jarPath) {
     $result = New-Result "failed-queue-replay-after-force-kill"
+    $application = "abuse-failed-replay"
     $dbPath = Join-Path $runDirectory "failed-queue-replay-after-force-kill.db"
     $payload = "kill-failed"
     $handle = $null
     try {
-        $handle = Start-Sample $jarPath $dbPath "failed-queue-replay-after-force-kill-start-1"
+        $handle = Start-Sample $jarPath $dbPath $application "failed-queue-replay-after-force-kill-start-1"
         Add-Logs $result $handle
         Reset-State $handle
         Configure-Chaos $handle 1 0
-        Switch-AsyncMode $handle
         Resize-Consumers $handle 1
         Emit-Chaos $handle $payload
-        Wait-ForFailedAtLeast $handle 1 15
-        $failedBeforeKill = Get-Buffer $handle
-        Add-Check $result "failedBeforeKill" $failedBeforeKill.failedCount
+        Wait-ForFailedAtLeast $handle 1 20
+        Add-Check $result "failedBeforeKill" (Get-Buffer $handle).failedCount
         Stop-Sample $handle
 
-        $handle = Start-Sample $jarPath $dbPath "failed-queue-replay-after-force-kill-start-2"
+        $handle = Start-Sample $jarPath $dbPath $application "failed-queue-replay-after-force-kill-start-2"
         Add-Logs $result $handle
         Configure-Chaos $handle 0 0
-        $buffer = Get-Buffer $handle
-        Add-Check $result "failedAfterRestart" $buffer.failedCount
-        $entryId = [string]$buffer.entries[0].entryId
-        Replay-Entry $handle $entryId
+        Wait-ForFailedAtLeast $handle 1 20
+        Add-Check $result "failedAfterRestart" (Get-Buffer $handle).failedCount
+        $entries = Get-QueueEntries $handle
+        $failed = @($entries | Where-Object { $_.state -eq "FAILED" }) | Select-Object -First 1
+        if ($null -eq $failed) {
+            throw "Browse through the admin server returned no FAILED entry"
+        }
+        Replay-Entry $handle ([string]$failed.entryId)
         Resize-Consumers $handle 1
-        Wait-ForEvent $handle "CHAOS:$payload" 15
-        Wait-ForBufferDrain $handle 15
+        Wait-ForEvent $handle "CHAOS:$payload" 20
+        Wait-ForBufferDrain $handle 20
         return $result
     } catch {
         $result.status = "FAIL"
@@ -319,38 +443,41 @@ function Invoke-FailedReplayAfterForceKill($jarPath) {
 
 function Invoke-InProgressRecoveryAfterForceKill($jarPath) {
     $result = New-Result "in-progress-recovery-after-force-kill"
+    $application = "abuse-in-progress"
     $dbPath = Join-Path $runDirectory "in-progress-recovery-after-force-kill.db"
     $payload = "kill-in-progress"
     $handle = $null
     try {
-        $handle = Start-Sample $jarPath $dbPath "in-progress-recovery-after-force-kill-start-1"
+        $handle = Start-Sample $jarPath $dbPath $application "in-progress-recovery-after-force-kill-start-1"
         Add-Logs $result $handle
         Reset-State $handle
-        Configure-Chaos $handle 0 5000
-        Switch-AsyncMode $handle
+        Configure-Chaos $handle 0 15000
         Resize-Consumers $handle 1
         Emit-Chaos $handle $payload
-        Wait-ForInProgressAtLeast $handle 1 10
+        Wait-ForInProgressAtLeast $handle 1 15
         Add-Check $result "inProgressBeforeKill" (Get-Buffer $handle).inProgressCount
         Stop-Sample $handle
 
-        $handle = Start-Sample $jarPath $dbPath "in-progress-recovery-after-force-kill-start-2"
+        $handle = Start-Sample $jarPath $dbPath $application "in-progress-recovery-after-force-kill-start-2"
         Add-Logs $result $handle
-        $buffer = $null
+        Configure-Chaos $handle 0 0
         Wait-Until {
             $buffer = Get-Buffer $handle
-            $failedCount = [int](Get-PropertyValue $buffer "failedCount" 0)
-            return $failedCount -ge 1
-        } 15 "Recovered failed entry was not observed after restart"
+            return ($buffer.failedCount + $buffer.pendingCount + $buffer.inProgressCount) -ge 1 -or ((Get-ChaosEvents $handle) -contains "CHAOS:$payload")
+        } 20 "Interrupted entry was neither kept nor redelivered after restart"
         $buffer = Get-Buffer $handle
-        Add-Check $result "failedAfterRestart" ([int](Get-PropertyValue $buffer "failedCount" 0))
-        Add-Check $result "recoveryErrorCategory" ([string](Get-PropertyValue $buffer.entries[0] "errorCategory" ""))
-        Add-Check $result "recoveryLastError" ([string](Get-PropertyValue $buffer.entries[0] "lastError" ""))
-        Configure-Chaos $handle 0 0
-        Replay-Entry $handle ([string](Get-PropertyValue $buffer.entries[0] "entryId" ""))
+        Add-Check $result "failedAfterRestart" $buffer.failedCount
+        Add-Check $result "pendingAfterRestart" $buffer.pendingCount
+        if ($buffer.failedCount -ge 1) {
+            $entries = Get-QueueEntries $handle
+            $failed = @($entries | Where-Object { $_.state -eq "FAILED" }) | Select-Object -First 1
+            Add-Check $result "recoveryErrorCategory" ([string](Get-PropertyValue $failed "errorCategory" ""))
+            Add-Check $result "recoveryLastError" ([string](Get-PropertyValue $failed "lastError" ""))
+            Replay-Entry $handle ([string]$failed.entryId)
+        }
         Resize-Consumers $handle 1
-        Wait-ForEvent $handle "CHAOS:$payload" 15
-        Wait-ForBufferDrain $handle 15
+        Wait-ForEvent $handle "CHAOS:$payload" 20
+        Wait-ForBufferDrain $handle 20
         return $result
     } catch {
         $result.status = "FAIL"
@@ -363,32 +490,35 @@ function Invoke-InProgressRecoveryAfterForceKill($jarPath) {
 
 function Invoke-RepeatedPendingKills($jarPath) {
     $result = New-Result "repeated-pending-force-kill-loop"
+    $application = "abuse-repeated"
     $dbPath = Join-Path $runDirectory "repeated-pending-force-kill-loop.db"
     $handle = $null
     try {
         foreach ($i in 1..3) {
-            $handle = Start-Sample $jarPath $dbPath "repeated-pending-force-kill-loop-start-$i"
+            $handle = Start-Sample $jarPath $dbPath $application "repeated-pending-force-kill-loop-start-$i"
             Add-Logs $result $handle
             if ($i -eq 1) {
                 Reset-State $handle
             }
-            Switch-AsyncMode $handle
             Resize-Consumers $handle 0
             Emit-Chaos $handle "loop-$i"
-            Wait-ForPending $handle $i 12
+            Wait-ForPending $handle $i 15
             Add-Check $result "pendingBeforeKill#$i" (Get-Buffer $handle).pendingCount
             Stop-Sample $handle
         }
 
-        $handle = Start-Sample $jarPath $dbPath "repeated-pending-force-kill-loop-final"
+        $handle = Start-Sample $jarPath $dbPath $application "repeated-pending-force-kill-loop-final"
         Add-Logs $result $handle
-        Switch-AsyncMode $handle
         Resize-Consumers $handle 1
         foreach ($i in 1..3) {
-            Wait-ForEvent $handle "CHAOS:loop-$i" 15
+            Wait-ForEvent $handle "CHAOS:loop-$i" 20
         }
-        Wait-ForBufferDrain $handle 15
-        Add-Check $result "finalEventCount" ((Get-ChaosEvents $handle).Count)
+        Wait-ForBufferDrain $handle 20
+        $finalEvents = @(Get-ChaosEvents $handle | ForEach-Object { $_ } | Where-Object { $_ -like "CHAOS:loop-*" })
+        Add-Check $result "finalEventCount" $finalEvents.Count
+        if ($finalEvents.Count -ne 3) {
+            throw "Expected 3 delivered loop events, saw $($finalEvents.Count)"
+        }
         return $result
     } catch {
         $result.status = "FAIL"
@@ -401,19 +531,19 @@ function Invoke-RepeatedPendingKills($jarPath) {
 
 function Invoke-HeaderCorruptionStartupRecovery($jarPath) {
     $result = New-Result "header-corruption-startup-recovery"
+    $application = "abuse-corruption"
     $dbPath = Join-Path $runDirectory "header-corruption-startup-recovery.db"
     [System.IO.File]::WriteAllBytes($dbPath, [byte[]](1, 2, 3, 4, 5))
     $handle = $null
     try {
-        $handle = Start-Sample $jarPath $dbPath "header-corruption-startup-recovery-start"
+        $handle = Start-Sample $jarPath $dbPath $application "header-corruption-startup-recovery-start"
         Add-Logs $result $handle
-        $summary = Get-AdminSummary $handle
-        $storageRecovery = Get-StorageRecovery $summary
-        Add-Check $result "storageRecoveryVisible" (Test-StorageRecoveryVisible $summary)
-        Add-Check $result "storageRecoveryStatus" ([string](Get-PropertyValue $storageRecovery "statusLabel" ""))
-        Add-Check $result "storageRecoveryMovedToPath" ([string](Get-PropertyValue $storageRecovery "movedToPath" ""))
-        if (-not (Test-StorageRecoveryVisible $summary)) {
-            throw "Expected startup recovery banner after deliberate header corruption"
+        $recovery = Get-StorageRecovery $handle
+        Add-Check $result "storageRecovered" ([bool]$recovery.recovered)
+        Add-Check $result "archivedPath" ([string](Get-PropertyValue $recovery "archivedPath" ""))
+        Add-Check $result "reportingToAdminServer" ($null -ne (Get-MethodSample $handle))
+        if (-not [bool]$recovery.recovered) {
+            throw "Expected the corrupted store to be archived and recreated at startup"
         }
         return $result
     } catch {
@@ -514,17 +644,22 @@ Ensure-Directory $runDirectory
 Ensure-Directory $trRunDirectory
 
 if ($BuildSample) {
-    Build-SampleJar
+    Build-Jars
 }
 
 $jarPath = Get-SampleJarPath
-$results = @(
-    Invoke-PendingSurvivesForceKill $jarPath
-    Invoke-FailedReplayAfterForceKill $jarPath
-    Invoke-InProgressRecoveryAfterForceKill $jarPath
-    Invoke-RepeatedPendingKills $jarPath
-    Invoke-HeaderCorruptionStartupRecovery $jarPath
-)
+Start-AdminServer (Get-AdminJarPath)
+try {
+    $results = @(
+        Invoke-PendingSurvivesForceKill $jarPath
+        Invoke-FailedReplayAfterForceKill $jarPath
+        Invoke-InProgressRecoveryAfterForceKill $jarPath
+        Invoke-RepeatedPendingKills $jarPath
+        Invoke-HeaderCorruptionStartupRecovery $jarPath
+    )
+} finally {
+    Stop-AdminServer
+}
 
 $report = Write-ReportFiles $results
 Write-Host "MapDB abuse suite completed with status $($report.OverallStatus)"

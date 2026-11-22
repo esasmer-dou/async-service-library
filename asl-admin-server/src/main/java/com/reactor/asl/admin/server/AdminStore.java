@@ -231,6 +231,14 @@ public final class AdminStore implements AutoCloseable {
         commit();
     }
 
+    /** True when a point for this pair would be stored: the series exists or there is room for a new one. */
+    public boolean acceptsSeries(String application, String instance, MethodKey method) {
+        if (seriesCache.containsKey(new SeriesRef(application, instance, method))) {
+            return true;
+        }
+        return !sizeLimitReached && seriesCache.size() < maxSeries;
+    }
+
     /** Points of one method, one series per replica, oldest first. */
     public synchronized List<Series> history(String application, MethodKey method, long resolutionMillis) {
         List<Series> result = new ArrayList<>();

@@ -50,11 +50,6 @@
         </dependency>
         <dependency>
             <groupId>com.reactor.asl</groupId>
-            <artifactId>asl-spring-boot-admin-starter</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.reactor.asl</groupId>
             <artifactId>asl-admin-protocol</artifactId>
             <version>${project.version}</version>
         </dependency>

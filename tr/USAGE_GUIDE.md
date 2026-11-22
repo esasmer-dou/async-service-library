@@ -22,10 +22,12 @@ Uygulamanın ihtiyacını karşılayan en küçük starter kullanılmalıdır:
 |---|---|
 | Yalnız senkron durdurma, sınırlandırma ve metrik | `asl-spring-boot-core-starter` |
 | Kalıcı async kuyruk | `asl-spring-boot-mapdb-starter` |
-| Admin arayüzü ve REST | `asl-spring-boot-admin-starter` |
-| Eski, tüm özellikleri birlikte getiren kurulum | `asl-spring-boot-starter` |
+| Merkezi admin server'dan yönetim | `asl-spring-boot-admin-client-starter` |
+| Hepsi bir arada kurulum | `asl-spring-boot-starter` |
 
-MapDB starter core starter’ı zaten getirir. Admin starter da core’u getirir ancak MapDB’yi otomatik eklemez. Geriye uyumlu starter üç modülü birlikte içerir.
+MapDB starter core starter’ı zaten getirir. Admin client web bağımlılığı eklemez ve `asl.admin.client.enabled=true` yapılana kadar kapalıdır. Hepsi bir arada starter core, MapDB ve admin client'ı içerir.
+
+Uygulama içinde artık admin portalı yoktur; `asl-spring-boot-admin-starter` kaldırıldı. Operatörler merkezi admin server'ı kullanır (bölüm 8).
 
 ## 3. GitHub Packages Ayarı
 
@@ -60,7 +62,7 @@ Token’da `read:packages` yetkisi bulunmalıdır. Depo private ise repository e
 
 ## 4. Dependency ve Annotation Processor
 
-Core, MapDB ve admin kullanan örnek kurulum:
+Core, MapDB ve admin client kullanan örnek kurulum:
 
 ```xml
 <properties>
@@ -75,7 +77,7 @@ Core, MapDB ve admin kullanan örnek kurulum:
     </dependency>
     <dependency>
         <groupId>com.reactor.asl</groupId>
-        <artifactId>asl-spring-boot-admin-starter</artifactId>
+        <artifactId>asl-spring-boot-admin-client-starter</artifactId>
         <version>${asl.version}</version>
     </dependency>
     <dependency>
@@ -223,48 +225,13 @@ Production kuralları:
 
 MapDB starter, uygulamada `ObjectMapper` bean’i varsa onu kullanır. Web katmanı olmayan bir uygulamada böyle bir bean yoksa yalnızca ASL codec’ine özel, modülleri algılayan bir `JsonMapper` oluşturur; bu mapper application context’e bean olarak eklenmez.
 
-## 8. Admin Panelini Güvenli Açma
+## 8. Merkezi Yönetim
 
-Admin varsayılan olarak kapalıdır. Açıldığında access policy bulunmazsa uygulama başlamaz; yalnızca açıkça anonim demo erişimi seçilirse bu zorunluluk kalkar.
-
-```java
-@Configuration
-class AslAdminSecurityConfiguration {
-    @Bean
-    AslAdminAccessPolicy aslAdminAccessPolicy() {
-        return request -> !"anonymous".equals(request.principalName());
-    }
-}
-```
-
-```yaml
-asl:
-  admin:
-    enabled: true
-    path: /asl
-    api-path: /asl/api
-    security:
-      allow-unauthenticated: false
-      audit-reads: false
-```
-
-Kimlik ve rol kontrolünün ana katmanı olarak host uygulamanın Spring Security kurallarını `/asl/**` için koru. `AslAdminAccessPolicy`, ASL’nin fail-closed kapısıdır ve principal, path ve aksiyon bazlı ek karar verebilir. Bütün mutasyonlar ile reddedilen bütün çağrılar `AslAdminAuditSink` üzerinden kaydedilir; `audit-reads=true` ise okuma çağrıları da audit edilir.
-
-Politika iki katmanda uygulanır: kanonik yolu (decode edilmiş, `;` path parametrelerinden arındırılmış, tekrarlanan `/` karakterleri birleştirilmiş) eşleştiren bir servlet filtresi ve doğrudan admin controller'larına bağlı bir MVC interceptor. Bu nedenle `/asl;x=1/api/...` veya `/%61sl/api/...` gibi farklı URL yazımları da kanonik yol gibi yetkilendirilir. `AccessRequest.path()` ve audit kaydındaki `path()` her zaman kanonik yolu içerir.
-
-Admin mutasyonları tarayıcı oturumu veya cookie ile yetkilendiriliyorsa host uygulamanın CSRF korumasını kapatma. ASL, host security chain’in veya authentication yönteminin yerine geçmez. Anonymous redleri `401`, kimliği doğrulanmış fakat policy tarafından reddedilen kullanıcılar `403` alır. Uygulama servlet context path altında çalışsa da admin yolu doğru biçimde korunur.
-
-Yalnızca dışarı kapalı yerel demo için:
-
-```yaml
-asl.admin.security.allow-unauthenticated: true
-```
-
-Bu ayarı erişilebilir bir ortamda kullanma.
+ASL'nin uygulama içinde yönetim ucu yoktur. Runtime değişiklikleri (başlatma/durdurma, eşzamanlılık sınırı, async mod, consumer thread sayısı) ve kuyruk işlemleri aşağıda anlatılan merkezi admin server üzerinden yapılır. Başlangıç değerleri `asl.runtime.services.*` ile verilir (bölüm 10). Uygulama içi portal (`asl-spring-boot-admin-starter`, `/asl` ve `/asl/api`) kaldırıldı; eski `asl.admin.services.*` anahtarlarını `asl.runtime.services.*` altına taşı, `asl.admin.client.*` dışındaki diğer `asl.admin.*` anahtarlarını sil.
 
 ## Merkezi Admin Server ve Birden Fazla Replica
 
-Admin starter arayüzü her uygulamanın içine koyar; bu da her pod için ayrı bir portal demektir. Birden fazla replica veya birden fazla uygulama varsa bunun yerine merkezi admin server kullanılır. Sunucu bir config server gibi çalışır: web portalini sunar, ayarları ve komutları aktarır, üzerinde iş mantığı yoktur.
+Tek bir merkezi admin server tüm uygulama ve replica'ları yönetir. Sunucu bir config server gibi çalışır: web portalini sunar, ayarları ve komutları aktarır, üzerinde iş mantığı yoktur.
 
 | Parça | Nerede | İçinde ne var |
 |---|---|---|
@@ -301,9 +268,19 @@ ASL_ADMIN_SECRET=... ASL_ADMIN_USER=admin ASL_ADMIN_PASSWORD=... \
 ./asl-admin-server.sh          # veya: java @asl-admin-server.jvmopts -jar asl-admin-server-<sürüm>-exec.jar
 ```
 
-`asl-admin-server.sh`, `asl-admin-server.cmd` ve `asl-admin-server.jvmopts` dosyaları `asl-admin-server/src/main/dist` altındadır; jar'ın yanında tutulmalıdır. Seçenek dosyası düşük kaynak kullanımı için JVM ayarlarını içerir (`-Xmx16m -Xms4m`, Serial GC, 12 MB code cache ile yalnız C1 JIT, 256 KB thread stack, perf data dosyası yok); betik ayrıca `MALLOC_ARENA_MAX=2` ayarlar. Yaklaşık 2.000 geçmiş serisinin üzerinde `-Xmx` değerini `32m` yapın.
+`asl-admin-server.sh`, `asl-admin-server.cmd` ve `asl-admin-server.jvmopts` dosyaları `asl-admin-server/src/main/dist` altındadır; jar'ın yanında tutulmalıdır. Seçenek dosyası düşük kaynak kullanımı için JVM ayarlarını içerir (`-Xmx16m -Xms4m`, Serial GC, 12 MB code cache ile yalnız C1 JIT, 256 KB thread stack, perf data dosyası yok); betik ayrıca `MALLOC_ARENA_MAX=2` ayarlar. Bellek yetmezse süreç kapanır (`-XX:+ExitOnOutOfMemoryError`) ve Kubernetes onu yeniden başlatır; replica'lar yeniden kayıt olur, uygulama düzeyindeki override'lar MapDB'den geri yüklenir.
 
-ya da bir `asl-admin.properties` dosyasıyla (başka konum için `--config=<yol>`):
+Heap, istek hızına değil sunucunun izlediği replica × metot çiftlerinin sayısına bağlıdır. Replica başına 50 metotla ölçüldü (2026-11-22, Windows, JDK 21, 2 sn heartbeat, bir uygulamada portal açık):
+
+| Replica × metot | GC sonrası canlı heap | `-Xmx` | Heartbeat/sn | Sunucu CPU | Heartbeat p99 |
+|---|---:|---:|---:|---:|---:|
+| 300 × 50 | ~7 MB | `16m` (varsayılan) | 150 | tek çekirdeğin ~%47'si | 5 ms |
+| 1.000 × 50 | ~19 MB | `48m` | 500 | tek çekirdeğin ~%66–71'i | 5–8 ms |
+| 1.000 × 50, 1 sn heartbeat | — | `96m` | 1.000 | tek çekirdeğin ~%95'i | 14 ms |
+
+Varsayılan iki HTTP thread'i tüm durumlarda yetti. `-Xmx16m` ile 1.000 × 50'de heap tükenir; filo yaklaşık 300 × 50'yi geçmeden `-Xmx` değerini artır. CPU değerleri paylaşılan bir iş istasyonunda ölçüldü, üst sınırdır.
+
+Ortam değişkenleri yerine sunucu bir `asl-admin.properties` dosyası da okuyabilir (başka konum için `--config=<yol>`):
 
 ```properties
 asl.admin.server.port=8080
@@ -328,41 +305,38 @@ Geçmiş, her replica ve metot için sabit boyutlu bir halkadır (`retention / r
 
 Varsayılan 15 sn heartbeat ve 1 dk geçmiş adımında yük yaklaşık on beş kat düşüktür. Yük senaryosunda canlı heap 6–7 MB civarında kalır; geri kalanı JVM'in kendisidir (kod, sınıf metadata'sı, paylaşılan sınıf arşivi). Çalıştırılabilir jar yaklaşık 17 MB'tır; büyük kısmı MapDB ve kütüphaneleridir.
 
-Kubernetes'te sunucuyu küçük bir ReadWriteOnce volume ile (veya aynı veriyi heap'te tutan `storage.mode=MEMORY` ile volume olmadan) tek replica'lı Deployment olarak çalıştır, portali TLS'li ingress üzerinden aç ve `/asl/v1/*` yollarına yalnızca küme içinden erişilebilsin. Merkezi yönetilen replica'larda `asl.admin.enabled` (uygulama içi portal) açılmamalıdır.
+Kubernetes'te sunucuyu küçük bir ReadWriteOnce volume ile (veya aynı veriyi heap'te tutan `storage.mode=MEMORY` ile volume olmadan) tek replica'lı Deployment olarak çalıştır, portali TLS'li ingress üzerinden aç ve `/asl/v1/*` yollarına yalnızca küme içinden erişilebilsin. Sunucu düz HTTP konuşur; TLS ingress'e aittir.
 
-## 9. Admin REST ve AJAX Projection
+## 9. Admin Server Portal API'si
 
-Arayüz bir kez yüklenir; aktif görünüm `fetch` ile yerinde güncellenir. Tam sayfa yenilemesi yapılmadığı için seçili metot ve scroll konumu korunur.
-
-Yapılandırılmış API path altındaki temel endpoint’ler:
+Portal sayfası `/asl-admin/api` altındaki küçük bir JSON API'sini çağırır. Scriptler de aynı API'yi kullanabilir; API portal girişinin (`security.mode`) arkasındadır. Değişiklik yapan çağrılar operatör rolü ister ve yabancı bir `Origin` taşıyorsa reddedilir.
 
 | Endpoint | Amaç |
 |---|---|
-| `GET /projection?page=0&size=50` | ETag destekli, sayfalı dashboard read model |
-| `GET /summary` | Kısa operasyon özeti |
-| `GET /services` | Runtime servis snapshot’ları |
-| `POST /services/{service}/methods/{method}/configuration` | Metot ayarlarını tek istekte uygular |
-| `GET /services/{service}/methods/{method}/buffer` | Sınırlı queue önizlemesi |
-| `DELETE .../buffer/{entry}` | Aktif olmayan tek kaydı siler |
-| `POST .../buffer/{entry}/replay` | Failed kaydı yeniden kuyruğa alır |
-| `DELETE .../buffer` | Lane’deki aktif olmayan kayıtları temizler |
+| `GET /server` | Sunucu sayaçları: uygulama, instance, depolama boyutu, geçmiş serisi |
+| `GET /apps` | Bağlı uygulamalar |
+| `GET /apps/{app}` | Metotlar, son ham sayaçlarıyla replica'lar, override'lar ve komut sonuçları; uygulamayı izleniyor olarak da işaretler (daha sık heartbeat) |
+| `GET /apps/{app}/history?serviceId=&methodId=` | Replica başına saklanan telemetri noktaları |
+| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, isteğe bağlı `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads` |
+| `DELETE /apps/{app}/overrides?serviceId=&methodId=[&instance=]` | Override'ı kaldırır; metot yml değerine döner |
+| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`), `serviceId`, `methodId`, isteğe bağlı `instance`, `entryId`, `limit`; `commandIds` döner |
+| `GET /audit?limit=100` | Son audit kayıtları |
 
-Negatif page değeri veya `asl.admin.dashboard.max-page-size` üzerindeki size değeri reddedilir. Client `If-None-Match` gönderdiğinde değişmeyen durum `304 Not Modified` döner. Hazır gelen arayüz, fetch timeout için `AbortController` kullanır.
+Replica override ve komutları bir sonraki heartbeat'inde alır. Replica'nın `appliedConfigVersion` değeri uygulamanın `configVersion` değerine eşitse (`inSync` true) güncel ayarları uygulamıştır. Komut sonuçları `GET /apps/{app}` cevabındaki `commands` listesinde görünür.
 
 ## 10. Ayar Önceliği
 
-1. Süreç çalışırken admin üzerinden yapılan runtime değişiklik.
-2. `asl.admin.services.<service>.methods.<signature>.*` başlangıç override’ı (admin starter).
-3. `asl.runtime.services.<service>.methods.<signature>.*` başlangıç override’ı (core starter, admin olmadan çalışır).
-4. Annotation değerleri.
-5. Kütüphane varsayılanları.
+1. Replica bağlıyken merkezi admin server'dan gelen override'lar: replica'ya özel olan uygulama düzeyindekinin önüne geçer.
+2. `asl.runtime.services.<service>.methods.<signature>.*` başlangıç override’ı (core starter).
+3. Annotation değerleri.
+4. Kütüphane varsayılanları.
 
-MapDB kapasite, codec, writer, worker, retry, payload ve corruption ayarları başlangıç ayarlarıdır; YAML değişikliği restart gerektirir. Admin mutasyonları yalnızca isteği alan JVM’de geçerlidir, diğer replica’lara dağıtılmaz.
+MapDB kapasite, codec, writer, worker, retry, payload ve corruption ayarları başlangıç ayarlarıdır; YAML değişikliği restart gerektirir. Uygulama düzeyindeki override'ları uygulamanın tüm replica'ları, sonradan açılanlar dahil, uygular; replica'ya özel override'ları yalnızca o replica uygular.
 
 Uygulamada hiçbir `asl.*` ayarı yoksa:
 
 - Üretilen wrapper’lar annotation varsayılanlarıyla çalışır.
-- Admin ve MapDB kapalı kalır.
+- Admin client ve MapDB kapalı kalır.
 - Yalnızca core starter kullanılıyorsa Web/Thymeleaf bağımlılığı gelmez.
 - `MeterRegistry` yoksa Micrometer meter’ları oluşturulmaz.
 
@@ -373,7 +347,7 @@ Bütün property’ler için [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENC
 Micrometer bulunduğunda ve `asl.observability.enabled=true` olduğunda şu metrikler açılır:
 
 - `asl.method.success`, `errors`, `rejected`.
-- Gözlem sayaçlarını sıfırlamak yalnızca admin/API penceresini yeniler; dışarı aktarılan metrik sayaçları doğru rate hesabı için monotonik kalır.
+- Gözlem sayaçlarını sıfırlamak (`RESET_OBSERVATIONS` komutu) yalnızca portal penceresini yeniler; dışarı aktarılan metrik sayaçları doğru rate hesabı için monotonik kalır.
 - `asl.method.in.flight`, `peak.in.flight`, `max.concurrency`, `enabled`, `async.mode`, `consumer.threads`.
 - `asl.mapdb.writer.*` komut, queue ve commit metrikleri.
 - `asl.mapdb.enqueue.active` ve `asl.mapdb.enqueue.max`.
@@ -430,4 +404,4 @@ Performans kapısı regression’ı yakalar; mutlak sıfır overhead kanıtlamaz
 
 ## 15. Çalıştırılabilir Örnek
 
-[Consumer sample](asl-consumer-sample/README.md); gerçek servis endpoint’leri, backlog/hata/replay kontrolleri, benchmark scriptleri ve crash-recovery senaryoları içerir.
+[Consumer sample](asl-consumer-sample/README.md); gerçek servis endpoint’leri, backlog/hata/replay senaryoları ve merkezi admin server üzerinden yürütülen crash-recovery testleri içerir.

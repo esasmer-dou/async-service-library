@@ -62,8 +62,8 @@ jobs:
           Included in this version:
           
           - allocation-conscious compile-time governed service wrappers
-          - independent core, MapDB, and admin Spring Boot starters plus the compatibility starter
-          - opt-in, fail-closed admin control plane with access-policy and audit extension points
+          - independent core, MapDB, and admin-client Spring Boot starters plus the all-in-one starter
+          - central admin server (separate jar, no web framework) with a pod-initiated, HMAC-signed binary protocol; pods expose no admin endpoint
           - bounded MapDB async execution with FIFO indexes, group commit, leases, retries, and idempotency keys
           - versioned payload codecs with allowlists, migration hooks, redaction, and size limits
           - Micrometer metrics, JVM/OS CI coverage, API compatibility checks, and CycloneDX SBOMs
@@ -74,7 +74,7 @@ jobs:
           - runtime \`SYNC -> ASYNC\` switching is supported for \`void\` methods only
           - MapDB is a single-process local queue; sharing one store between replicas is unsupported
           - delivery is at-least-once, so external business side effects must remain idempotent
-          - production admin access requires a host-provided \`AslAdminAccessPolicy\`
+          - the admin server does not terminate TLS; run its portal behind a TLS ingress
           
           Start here:
           
@@ -96,7 +96,9 @@ jobs:
             asl-processor/target/*.jar
             asl-spring-boot-core-starter/target/*.jar
             asl-spring-boot-mapdb-starter/target/*.jar
-            asl-spring-boot-admin-starter/target/*.jar
+            asl-admin-protocol/target/*.jar
+            asl-spring-boot-admin-client-starter/target/*.jar
+            asl-admin-server/target/*-exec.jar
             asl-spring-boot-starter/target/*.jar
             target/bom.json
             target/bom.xml

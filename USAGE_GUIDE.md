@@ -22,10 +22,12 @@ Use the smallest starter that satisfies the application:
 |---|---|
 | Synchronous stop/throttle/metrics only | `asl-spring-boot-core-starter` |
 | Persistent async queue | `asl-spring-boot-mapdb-starter` |
-| Admin UI and REST | `asl-spring-boot-admin-starter` |
-| Existing all-in-one installation | `asl-spring-boot-starter` |
+| Management from the central admin server | `asl-spring-boot-admin-client-starter` |
+| All-in-one installation | `asl-spring-boot-starter` |
 
-`asl-spring-boot-mapdb-starter` already includes the core starter. The admin starter also includes core, but it does not automatically add MapDB. The compatibility starter includes all three.
+`asl-spring-boot-mapdb-starter` already includes the core starter. The admin client adds no web dependency and stays off until `asl.admin.client.enabled=true`. The all-in-one starter includes core, MapDB and the admin client.
+
+There is no admin portal inside the application any more; `asl-spring-boot-admin-starter` was removed. Operators use the central admin server (section 8).
 
 ## 3. Configure GitHub Packages
 
@@ -60,7 +62,7 @@ The token needs `read:packages`; private repository access also needs repository
 
 ## 4. Add Dependencies and the Processor
 
-Example for core + MapDB + admin:
+Example for core + MapDB + admin client:
 
 ```xml
 <properties>
@@ -75,7 +77,7 @@ Example for core + MapDB + admin:
     </dependency>
     <dependency>
         <groupId>com.reactor.asl</groupId>
-        <artifactId>asl-spring-boot-admin-starter</artifactId>
+        <artifactId>asl-spring-boot-admin-client-starter</artifactId>
         <version>${asl.version}</version>
     </dependency>
     <dependency>
@@ -223,48 +225,13 @@ Custom Jackson DTO packages must be allowlisted, or the method must use a regist
 
 The MapDB starter reuses the host application's `ObjectMapper` when one exists. In a non-web application without an `ObjectMapper` bean, it creates a private module-aware `JsonMapper` for the ASL codec only; it does not publish that mapper into the application context.
 
-## 8. Enable the Admin Plane
+## 8. Central Management
 
-Admin is disabled by default. When enabled, startup fails unless an access policy exists or anonymous demo access is explicitly requested.
-
-```java
-@Configuration
-class AslAdminSecurityConfiguration {
-    @Bean
-    AslAdminAccessPolicy aslAdminAccessPolicy() {
-        return request -> !"anonymous".equals(request.principalName());
-    }
-}
-```
-
-```yaml
-asl:
-  admin:
-    enabled: true
-    path: /asl
-    api-path: /asl/api
-    security:
-      allow-unauthenticated: false
-      audit-reads: false
-```
-
-Keep the host application’s Spring Security authorization on `/asl/**` as the primary identity and role layer. `AslAdminAccessPolicy` is the ASL fail-closed gate and can add principal/path/action checks. Every mutation and every denied request is audited through `AslAdminAuditSink`; reads are also audited when `audit-reads=true`.
-
-The policy is enforced twice: a servlet filter that matches the canonical path (decoded, without `;` path parameters, repeated slashes collapsed) and an MVC interceptor bound to the admin controllers themselves. Alternative URL spellings such as `/asl;x=1/api/...` or `/%61sl/api/...` are therefore authorized like the canonical path. The `AccessRequest.path()` and audit `path()` always contain the canonical path.
-
-Keep the host application's CSRF protection enabled when browser sessions or cookies can authorize admin mutations. ASL does not replace the host security chain or select an authentication scheme. Anonymous denials return `401`; authenticated principals rejected by the policy receive `403`. Matching remains correct when the application runs under a servlet context path.
-
-For an isolated local sample only:
-
-```yaml
-asl.admin.security.allow-unauthenticated: true
-```
-
-Do not use that setting on an externally reachable environment.
+ASL has no admin endpoint inside the application. Runtime changes (start/stop, max concurrency, async mode, consumer threads) and queue operations go through the central admin server described below. Startup values come from `asl.runtime.services.*` (section 10). The in-application portal (`asl-spring-boot-admin-starter`, `/asl` and `/asl/api`) was removed; replace its `asl.admin.services.*` keys with `asl.runtime.services.*` and drop the other `asl.admin.*` keys except `asl.admin.client.*`.
 
 ## Central Admin Server for Multiple Replicas
 
-The admin starter puts a UI inside each application, which means one portal per pod. With several replicas or several applications, use the central admin server instead. It works like a config server: it serves the web portal and relays settings and commands, and holds no business logic.
+One central admin server manages every application and replica. It works like a config server: it serves the web portal and relays settings and commands, and holds no business logic.
 
 | Part | Where | Contains |
 |---|---|---|
@@ -301,9 +268,19 @@ ASL_ADMIN_SECRET=... ASL_ADMIN_USER=admin ASL_ADMIN_PASSWORD=... \
 ./asl-admin-server.sh          # or: java @asl-admin-server.jvmopts -jar asl-admin-server-<version>-exec.jar
 ```
 
-`asl-admin-server.sh`, `asl-admin-server.cmd` and `asl-admin-server.jvmopts` are in `asl-admin-server/src/main/dist`; keep them next to the jar. The options file holds the low-footprint JVM settings (`-Xmx16m -Xms4m`, Serial GC, C1-only JIT with a 12 MB code cache, 256 KB thread stacks, no perf data file) and the script also sets `MALLOC_ARENA_MAX=2`. Raise `-Xmx` to `32m` above roughly 2,000 history series.
+`asl-admin-server.sh`, `asl-admin-server.cmd` and `asl-admin-server.jvmopts` are in `asl-admin-server/src/main/dist`; keep them next to the jar. The options file holds the low-footprint JVM settings (`-Xmx16m -Xms4m`, Serial GC, C1-only JIT with a 12 MB code cache, 256 KB thread stacks, no perf data file) and the script also sets `MALLOC_ARENA_MAX=2`. An out-of-memory error stops the process (`-XX:+ExitOnOutOfMemoryError`) so Kubernetes restarts it; replicas re-register and application-wide overrides are reloaded from MapDB.
 
-or with an `asl-admin.properties` file (`--config=<path>` to use another location):
+Heap follows the number of replica × method pairs the server tracks, not the request rate. Measured with 50 methods per replica (2026-11-22, Windows, JDK 21, heartbeats every 2 s, portal open on one application):
+
+| Replicas × methods | Live heap after GC | `-Xmx` | Heartbeats/s | Server CPU | Heartbeat p99 |
+|---|---:|---:|---:|---:|---:|
+| 300 × 50 | ~7 MB | `16m` (default) | 150 | ~47 % of one core | 5 ms |
+| 1,000 × 50 | ~19 MB | `48m` | 500 | ~66–71 % of one core | 5–8 ms |
+| 1,000 × 50, 1 s heartbeats | — | `96m` | 1,000 | ~95 % of one core | 14 ms |
+
+The default two HTTP threads handled every case. With `-Xmx16m` and 1,000 × 50 the heap runs out, so raise `-Xmx` before the fleet grows past about 300 × 50. CPU figures come from a shared workstation and are upper bounds.
+
+Instead of environment variables the server can read an `asl-admin.properties` file (`--config=<path>` to use another location):
 
 ```properties
 asl.admin.server.port=8080
@@ -328,41 +305,38 @@ History is a fixed ring per replica and method (`retention / resolution` points,
 
 At the default 15 s heartbeat and 1 min history step the load is about fifteen times lower. The live heap stays around 6–7 MB in the stress case; the rest is the JVM itself (code, class metadata, shared class archive). The executable jar is about 17 MB, mostly MapDB and its libraries.
 
-In Kubernetes run the server as a single-replica Deployment with a small ReadWriteOnce volume (or `storage.mode=MEMORY`, which keeps the same data on the heap, and no volume), expose the portal through your ingress with TLS, and keep `/asl/v1/*` reachable only from inside the cluster. Do not enable `asl.admin.enabled` (the in-application portal) on replicas that are managed centrally.
+In Kubernetes run the server as a single-replica Deployment with a small ReadWriteOnce volume (or `storage.mode=MEMORY`, which keeps the same data on the heap, and no volume), expose the portal through your ingress with TLS, and keep `/asl/v1/*` reachable only from inside the cluster. The server speaks plain HTTP; TLS belongs to the ingress.
 
-## 9. Admin REST and AJAX Projection
+## 9. Admin Server Portal API
 
-The UI loads once and updates the active view with `fetch`; it does not reload the whole page. Scroll position and selected method remain stable.
-
-Important endpoints under the configured API path:
+The portal page calls a small JSON API under `/asl-admin/api`. Scripts can use the same API; it sits behind the portal login (`security.mode`). Mutating calls need the operator role and are rejected when they carry a foreign `Origin`.
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /projection?page=0&size=50` | Paginated dashboard read model with ETag |
-| `GET /summary` | Compact operational summary |
-| `GET /services` | Runtime service snapshots |
-| `POST /services/{service}/methods/{method}/configuration` | Atomic method configuration patch |
-| `GET /services/{service}/methods/{method}/buffer` | Bounded queue preview |
-| `DELETE .../buffer/{entry}` | Delete one non-active entry |
-| `POST .../buffer/{entry}/replay` | Replay one failed entry |
-| `DELETE .../buffer` | Clear non-active entries in a lane |
+| `GET /server` | Server counters: applications, instances, storage size, history series |
+| `GET /apps` | Connected applications |
+| `GET /apps/{app}` | Methods, replicas with their latest raw counters, overrides and command results; also marks the application as watched (faster heartbeats) |
+| `GET /apps/{app}/history?serviceId=&methodId=` | Stored telemetry points per replica |
+| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, optional `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads` |
+| `DELETE /apps/{app}/overrides?serviceId=&methodId=[&instance=]` | Remove an override; the method returns to its yml value |
+| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`), `serviceId`, `methodId`, optional `instance`, `entryId`, `limit`; returns `commandIds` |
+| `GET /audit?limit=100` | Recent audit entries |
 
-Projection requests reject negative pages and page sizes above `asl.admin.dashboard.max-page-size`. Clients should send `If-None-Match`; unchanged state returns `304 Not Modified`. The built-in client uses `AbortController` with the configured fetch timeout.
+A replica picks up overrides and commands with its next heartbeat. A replica has applied the current settings when its `appliedConfigVersion` equals the application's `configVersion` (`inSync` is true). Command results appear in the `commands` list of `GET /apps/{app}`.
 
 ## 10. Configuration Precedence
 
-1. Runtime admin changes, while the process is alive.
-2. `asl.admin.services.<service>.methods.<signature>.*` startup overrides (admin starter).
-3. `asl.runtime.services.<service>.methods.<signature>.*` startup overrides (core starter, works without admin).
-4. Annotation values.
-5. Library defaults.
+1. Overrides from the central admin server while the replica is connected: replica-specific over application-wide.
+2. `asl.runtime.services.<service>.methods.<signature>.*` startup overrides (core starter).
+3. Annotation values.
+4. Library defaults.
 
-MapDB capacity, codec, writer, worker, retry, payload, and corruption settings are startup settings. Changing YAML requires restart. Admin mutations are process-local and are not distributed to other replicas.
+MapDB capacity, codec, writer, worker, retry, payload, and corruption settings are startup settings. Changing YAML requires restart. Application-wide overrides are applied by every replica of the application, including replicas that start later; replica-specific overrides only by that replica.
 
 If the application defines no `asl.*` properties:
 
 - Generated wrappers still enforce annotation defaults.
-- Admin and MapDB remain disabled.
+- The admin client and MapDB remain disabled.
 - No Web/Thymeleaf dependency is present when only the core starter is used.
 - Micrometer meters are registered only when a `MeterRegistry` is present.
 
@@ -373,7 +347,7 @@ See [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md) for every property 
 With Micrometer present and `asl.observability.enabled=true`, ASL exports:
 
 - `asl.method.success`, `errors`, `rejected`.
-- Observation reset changes the admin/API window only; exported counters remain monotonic for correct rate calculations.
+- Observation reset (the `RESET_OBSERVATIONS` command) changes the portal window only; exported counters remain monotonic for correct rate calculations.
 - `asl.method.in.flight`, `peak.in.flight`, `max.concurrency`, `enabled`, `async.mode`, `consumer.threads`.
 - `asl.mapdb.writer.*` command, queue, and commit metrics.
 - `asl.mapdb.enqueue.active` and `asl.mapdb.enqueue.max`.
@@ -430,4 +404,4 @@ Performance gates protect against regression; they do not prove zero overhead. S
 
 ## 15. Runnable Reference
 
-The [consumer sample](asl-consumer-sample/README.md) includes real service endpoints, backlog/failure/replay controls, benchmark scripts, and crash-recovery scenarios.
+The [consumer sample](asl-consumer-sample/README.md) includes real service endpoints, backlog/failure/replay scenarios, and crash-recovery tests driven through the central admin server.

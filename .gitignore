@@ -7,10 +7,8 @@
 
 data/
 reports/live-run/
-reports/real-sample/
 reports/mapdb-abuse/
-tr/reports/real-sample/
-tr/reports/mapdb-abuse/
+tr/tr/reports/mapdb-abuse/
 asl-consumer-sample/reports/
 ADMIN_CONTROL_PLANE_GUIDE.md
 BENCHMARK_RUNBOOK.md

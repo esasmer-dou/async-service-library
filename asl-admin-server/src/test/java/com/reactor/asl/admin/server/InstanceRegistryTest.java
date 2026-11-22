@@ -64,6 +64,27 @@ class InstanceRegistryTest {
         assertEquals(4, samples.get(0).values()[MethodSample.IN_FLIGHT]);
     }
 
+    @Test
+    void historySamplesSkipPairsPastTheSeriesLimitBeforeCopying() {
+        store.close();
+        config = config(Map.of("storage.path", directory.resolve("limited.db").toString(), "history.max-series", "1"));
+        store = new AdminStore(config);
+        registry = new InstanceRegistry(config, store, now);
+        RegisterReply a = register("orders-a");
+        RegisterReply b = register("orders-b");
+        registry.beat(new Beat(a.sessionId(), 1, 0, Beat.FULL, null, List.of(), List.of(full(0, true, false, 9, 4))), now);
+        registry.beat(new Beat(b.sessionId(), 1, 0, Beat.FULL, null, List.of(), List.of(full(0, true, false, 9, 5))), now);
+
+        List<AdminStore.HistorySample> first = registry.historySamples(store::acceptsSeries);
+        assertEquals(2, first.size());
+        store.recordHistory(1, 60_000, first);
+        assertEquals(1, store.seriesCount());
+
+        List<AdminStore.HistorySample> next = registry.historySamples(store::acceptsSeries);
+        assertEquals(1, next.size());
+        assertEquals(1, store.seriesCount());
+    }
+
     private static ServerConfig config(Map<String, String> extra) {
         Map<String, String> values = new HashMap<>(Map.of("secret", "0123456789abcdef-x", "security.mode", "NONE",
                 "commands.max-pending", "3", "commands.ttl", "10s"));

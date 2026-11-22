@@ -1,6 +1,8 @@
 # JVM options for the ASL admin server, tuned for the smallest footprint.
 # Use with: java @asl-admin-server.jvmopts -jar asl-admin-server-<version>-exec.jar
-# Raise -Xmx to 32m above roughly 2,000 history series (replicas x methods).
+# Heap follows the number of replica x method pairs the server tracks (measured live heap after GC:
+# ~7 MB for 300 replicas x 50 methods, ~19 MB for 1,000 x 50). -Xmx16m covers about 300 x 50;
+# use -Xmx48m for about 1,000 x 50. An out-of-memory error stops the process so the platform restarts it.
 -Xmx16m
 -Xms4m
 -Xss256k
@@ -11,3 +13,4 @@
 -XX:CICompilerCount=1
 -XX:ReservedCodeCacheSize=12m
 -XX:-UsePerfData
+-XX:+ExitOnOutOfMemoryError

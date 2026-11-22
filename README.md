@@ -13,7 +13,7 @@ ASL is designed around explicit limits. Async admission, payload size, writer ba
 - Persistent async execution for explicitly marked `void` methods.
 - Bounded MapDB queue with FIFO indexes, leases, retries, idempotency, and durable acknowledgements.
 - Micrometer metrics with a configurable cardinality cap.
-- Optional AJAX control plane with pagination, ETag polling, and audit hooks.
+- Optional central admin server: one lightweight portal for every application and replica; pods expose no admin endpoint.
 - JMH, API compatibility, SBOM, JVM/OS matrix, and destructive recovery gates.
 
 ## Choose Only the Modules You Need
@@ -22,12 +22,13 @@ ASL is designed around explicit limits. Async admission, payload size, writer ba
 |---|---|---:|---:|
 | Synchronous governance only | `asl-spring-boot-core-starter` | No | No |
 | Persistent async lanes | `asl-spring-boot-mapdb-starter` | Yes | No |
-| Admin UI and REST control plane inside the application | `asl-spring-boot-admin-starter` | No | Yes |
 | Connect the application to the central admin server | `asl-spring-boot-admin-client-starter` | No | No |
 | Central portal for every application and replica (separate jar, no web framework) | `asl-admin-server` | Yes (telemetry history) | No |
-| Backward-compatible all-in-one setup | `asl-spring-boot-starter` | Yes | Yes |
+| All-in-one setup (core + MapDB + admin client) | `asl-spring-boot-starter` | Yes | No |
 
-The annotation processor remains a compile-time dependency. Applications that only need synchronous governance no longer pay for MapDB, Spring MVC, or Thymeleaf.
+The annotation processor remains a compile-time dependency. Applications that only need synchronous governance do not pay for MapDB. No ASL artifact adds Spring MVC or Thymeleaf to the application; the admin client is off until `asl.admin.client.enabled=true`.
+
+The in-application admin portal (`asl-spring-boot-admin-starter`, `/asl` and `/asl/api`) was removed. Use the central admin server instead; startup overrides moved to `asl.runtime.services.*`.
 
 ## Minimal Integration
 
@@ -65,8 +66,8 @@ Result-returning methods stay synchronous because queueing would break their ret
 
 ## Production Defaults
 
-- Admin is disabled by default.
-- Enabling admin requires an `AslAdminAccessPolicy` bean. Anonymous access must be explicitly enabled and is intended only for isolated demos.
+- The admin client is disabled by default. When enabled it requires a shared HMAC secret of at least 16 bytes, and it opens no port on the pod.
+- The admin server portal requires a login by default (`BASIC`); it does not terminate TLS and belongs behind a TLS ingress.
 - MapDB is disabled by default and corruption policy is `FAIL_FAST`.
 - Queue and payload limits reject excess work by default instead of growing without bound.
 - MapDB transactions are enabled; disabling them weakens rollback and crash-durability guarantees and logs a warning.
@@ -76,7 +77,7 @@ Result-returning methods stay synchronous because queueing would break their ret
 
 ## Deployment Boundary
 
-The MapDB engine is process-local. Use one application replica with a local/PVC-backed queue, or give every replica an independent queue. Never mount the same MapDB file into multiple pods. The single-owner `.asl.lock` uses an OS file lock, which network filesystems (NFS, SMB, ReadWriteMany volumes such as EFS or Azure Files) may not enforce reliably; use a ReadWriteOnce volume per replica. Cluster-wide delivery requires an external broker adapter such as Kafka, RabbitMQ, or Redis Streams.
+The MapDB engine is process-local. Use one application replica with a local/PVC-backed queue, or give every replica an independent queue. Never mount the same MapDB file into multiple pods. The single-owner `.asl.lock` uses an OS file lock, which network filesystems (NFS, SMB, ReadWriteMany volumes such as EFS or Azure Files) may not enforce reliably; use a ReadWriteOnce volume per replica. ASL does not provide cluster-wide delivery and ships no broker adapter; work that must be shared across replicas belongs on a message broker.
 
 With several replicas, manage them from one place with the central admin server: each replica runs `asl-spring-boot-admin-client-starter` (no UI and no inbound endpoint on the pod) and opens the only connection itself. See [Central admin server](USAGE_GUIDE.md#central-admin-server-for-multiple-replicas).
 

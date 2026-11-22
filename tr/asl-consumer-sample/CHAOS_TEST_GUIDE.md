@@ -2,10 +2,12 @@
 
 Bu rehber, sample uygulama üzerinde denenebilecek temel kaos ve toparlanma senaryolarını açıklar. Amaç, async queue davranışının normal çalışma, hata, replay, restart ve zorla kill durumlarında nasıl tepki verdiğini görmektir.
 
-Otomatik destructive suite:
+Çalışma zamanı değişiklikleri, operatörün kullandığı yoldan, merkezi admin server üzerinden yapılır. Kopyalanabilir PowerShell yardımcıları ve adım adım komutlar İngilizce rehberdedir: [CHAOS_TEST_GUIDE.md](../../asl-consumer-sample/CHAOS_TEST_GUIDE.md). Sample'ı admin server'a bağlı başlatmak için [README](README.md#merkezi-admin-serverdan-yönetim) adımlarını izle.
+
+Otomatik destructive suite (PowerShell 7):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run-mapdb-abuse-suite.ps1
+pwsh -File .\scripts\run-mapdb-abuse-suite.ps1
 ```
 
 ## Kapsam
@@ -21,7 +23,7 @@ Bu senaryolar özellikle şu davranışları gözlemlemek için kullanılır:
 - Restart sonrası pending ve failed queue durumunun korunması.
 - Graceful shutdown sırasında in-flight işlerin ele alınması.
 - JVM zorla öldürüldüğünde queue dosyasının yeniden açılabilir kalması.
-- Stale `IN_PROGRESS` kayıtların recovery sırasında failed duruma çekilmesi.
+- Çökme sırasında `IN_PROGRESS` kalan kayıtların açılışta yeniden `PENDING` duruma alınması.
 - Bilerek bozulan MapDB header dosyasında startup recovery davranışı.
 
 ## Ortak Kontrol Noktaları
@@ -33,7 +35,6 @@ Her senaryoda şu sinyalleri birlikte oku:
 - Consumer thread sayısı beklenen değerde mi?
 - Queue depth artıyor mu, azalıyor mu?
 - Failed entry oluştu mu?
-- Admin summary pressure seviyesi doğru mu?
 - Replay veya clear sonrası state beklenen hâle geldi mi?
 
 ## Temel Senaryolar
@@ -76,7 +77,7 @@ Uygulamayı normal shutdown ile kapat. Worker shutdown bekleme süresi içinde i
 
 ### 10. Stale `IN_PROGRESS` recovery
 
-İş `IN_PROGRESS` durumundayken JVM’i zorla öldüren destructive suite’i çalıştır. Restart sonrası stale kayıtların recovery mesajıyla failed duruma alınması beklenir.
+İş `IN_PROGRESS` durumundayken JVM’i zorla öldüren destructive suite’i çalıştır. Açılışta kesilen kaydın retry hakkı tüketilmeden `PENDING` duruma dönmesi ve yeniden işlenmesi beklenir; `asl.async.mapdb.retry.max-interruptions` sınırı aşılırsa kayıt `FAILED` olur.
 
 ## Önerilen Çalıştırma Sırası
 
@@ -89,14 +90,14 @@ Uygulamayı normal shutdown ile kapat. Worker shutdown bekleme süresi içinde i
 7. Restart recovery.
 8. Destructive MapDB abuse suite.
 
-## Admin UI ile İzleme
+## Admin Portal ile İzleme
 
-Admin panelde:
+Merkezi portalde (`http://localhost:8090/asl-admin/`):
 
-- Önce servis kartlarındaki queue depth, failed ve pressure sinyallerini kontrol et.
-- Sonra ilgili metot detayını aç.
-- Buffer bölümünde pending, failed ve in-progress kayıtları izle.
-- Replay, delete veya clear işlemini yalnızca ilgili state’i gördükten sonra uygula.
+- `asl-consumer-sample` uygulamasını aç; replica'ların pending, failed ve in-progress sayaçlarını kontrol et.
+- İlgili metodu seç; mod, consumer ve durdurma/başlatma ayarlarını buradan ver.
+- Kuyruğu listele; replay, delete veya clear işlemini yalnızca ilgili durumu gördükten sonra uygula.
+- Sample yeniden başlarken portal çalışmaya devam eder; replica yeniden kayıt olunca tekrar görünür.
 
 ## Beklenen Sonuç
 
@@ -104,6 +105,6 @@ Bu senaryolar başarılıysa sample uygulama şu davranışları göstermelidir:
 
 - JVM kill sonrası uygulama fatal startup hatasıyla kalmamalı.
 - Doğrulanmış header bozulmasında `FAIL_FAST` dosyayı değiştirmeden başlangıcı durdurmalı; yalnız `ARCHIVE_AND_RESET` seçilmişse bozuk store arşivlenip boş kuyruk açılmalıdır.
-- Admin UI recovery durumunu banner ile göstermelidir.
+- Açılışta bir depo arşivlendiyse `GET /api/chaos/storage-recovery` orijinal ve arşiv yolunu göstermelidir.
 - Failed işler görünür, replay edilebilir ve silinebilir olmalıdır.
 - Pending backlog operatör tarafından consumer thread artırılarak eritilebilmelidir.

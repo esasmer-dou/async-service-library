@@ -13,7 +13,7 @@ Tasarımın temel ilkesi sınırsız kaynak kullanmamaktır. Async kabulü, payl
 - Yalnızca açıkça işaretlenmiş `void` metotlar için kalıcı async çalışma.
 - FIFO indeksleri, lease, retry, idempotency ve kalıcı onay içeren sınırlı MapDB kuyruğu.
 - Cardinality sınırı ayarlanabilen Micrometer metrikleri.
-- Sayfalama, ETag yenileme ve audit desteği olan isteğe bağlı AJAX yönetim paneli.
+- İsteğe bağlı merkezi admin server: tüm uygulama ve replica'lar için tek, hafif portal; pod'larda yönetim ucu yoktur.
 - JMH, API uyumluluğu, SBOM, JVM/işletim sistemi matrisi ve yıpratıcı recovery testleri.
 
 ## Yalnızca İhtiyacın Olan Modülü Seç
@@ -22,12 +22,13 @@ Tasarımın temel ilkesi sınırsız kaynak kullanmamaktır. Async kabulü, payl
 |---|---|---:|---:|
 | Yalnız senkron metot yönetimi | `asl-spring-boot-core-starter` | Hayır | Hayır |
 | Kalıcı async kuyruk | `asl-spring-boot-mapdb-starter` | Evet | Hayır |
-| Uygulamanın içinde admin arayüzü ve REST kontrol düzlemi | `asl-spring-boot-admin-starter` | Hayır | Evet |
 | Uygulamayı merkezi admin server'a bağlama | `asl-spring-boot-admin-client-starter` | Hayır | Hayır |
 | Tüm uygulama ve replica'lar için merkezi portal (ayrı jar, web framework'süz) | `asl-admin-server` | Evet (telemetri geçmişi) | Hayır |
-| Geriye uyumlu, tüm özellikleri içeren kurulum | `asl-spring-boot-starter` | Evet | Evet |
+| Hepsi bir arada kurulum (core + MapDB + admin client) | `asl-spring-boot-starter` | Evet | Hayır |
 
-Annotation processor yalnızca derleme sırasında kullanılır. Sadece senkron yönetim isteyen bir uygulama artık MapDB, Spring MVC veya Thymeleaf bağımlılıklarını taşımak zorunda değildir.
+Annotation processor yalnızca derleme sırasında kullanılır. Sadece senkron yönetim isteyen bir uygulama MapDB taşımaz. Hiçbir ASL artifact'i uygulamaya Spring MVC veya Thymeleaf eklemez; admin client `asl.admin.client.enabled=true` yapılana kadar kapalıdır.
+
+Uygulama içi admin portalı (`asl-spring-boot-admin-starter`, `/asl` ve `/asl/api`) kaldırıldı. Yerine merkezi admin server kullanılır; başlangıç override'ları `asl.runtime.services.*` altına taşındı.
 
 ## En Küçük Kurulum
 
@@ -65,8 +66,8 @@ Yanıt döndüren metotlar senkron kalır; bu metotları kuyruğa almak çağrı
 
 ## Production Varsayılanları
 
-- Admin özelliği başlangıçta kapalıdır.
-- Admin açıldığında bir `AslAdminAccessPolicy` bean’i zorunludur. Anonim erişim ayrıca ve açıkça etkinleştirilebilir; bu seçenek yalnızca izole demo ortamları içindir.
+- Admin client başlangıçta kapalıdır. Açıldığında en az 16 baytlık ortak bir HMAC anahtarı ister ve pod'da port açmaz.
+- Admin server portalı varsayılan olarak giriş ister (`BASIC`); TLS sonlandırmaz, TLS'li bir ingress arkasında çalışmalıdır.
 - MapDB başlangıçta kapalıdır; bozulma politikası `FAIL_FAST` değerindedir.
 - Kuyruk ve payload sınırı aşıldığında varsayılan davranış belleği büyütmek değil, işi reddetmektir.
 - MapDB transaction desteği açıktır. Kapatılması rollback ve çökme dayanıklılığını zayıflatır ve log’a uyarı yazar.
@@ -76,7 +77,7 @@ Yanıt döndüren metotlar senkron kalır; bu metotları kuyruğa almak çağrı
 
 ## Dağıtım Sınırı
 
-MapDB motoru tek JVM’e aittir. Uygulama tek replica ve local/PVC tabanlı kuyrukla çalıştırılabilir ya da her replica kendi bağımsız kuyruğunu kullanabilir. Aynı MapDB dosyası birden fazla pod tarafından kesinlikle paylaşılmamalıdır. Tek sahiplik `.asl.lock` dosyası işletim sistemi file lock'u kullanır; ağ dosya sistemleri (NFS, SMB, EFS veya Azure Files gibi ReadWriteMany volume'lar) bu kilidi güvenilir biçimde uygulamayabilir. Her replica için ReadWriteOnce volume kullan. Küme genelinde teslimat gerekiyorsa Kafka, RabbitMQ veya Redis Streams gibi dış bir broker için adapter kullanılmalıdır.
+MapDB motoru tek JVM’e aittir. Uygulama tek replica ve local/PVC tabanlı kuyrukla çalıştırılabilir ya da her replica kendi bağımsız kuyruğunu kullanabilir. Aynı MapDB dosyası birden fazla pod tarafından kesinlikle paylaşılmamalıdır. Tek sahiplik `.asl.lock` dosyası işletim sistemi file lock'u kullanır; ağ dosya sistemleri (NFS, SMB, EFS veya Azure Files gibi ReadWriteMany volume'lar) bu kilidi güvenilir biçimde uygulamayabilir. Her replica için ReadWriteOnce volume kullan. ASL küme genelinde teslimat sağlamaz ve broker adapter'ı içermez; replica'lar arasında paylaşılması gereken iş bir mesaj kuyruğu sistemine aittir.
 
 Birden fazla replica'yı tek noktadan yönetmek için merkezi admin server kullanılır: her replica `asl-spring-boot-admin-client-starter` ile çalışır (pod'da arayüz ve dışarıdan erişilen endpoint yoktur) ve tek bağlantıyı kendisi açar. Ayrıntı: [Merkezi admin server](USAGE_GUIDE.md#merkezi-admin-server-ve-birden-fazla-replica).
 

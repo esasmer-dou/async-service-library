@@ -2,8 +2,10 @@ package com.reactor.asl.consumer.sample;
 
 import com.reactor.asl.core.ExecutionMode;
 import com.reactor.asl.core.GovernanceRegistry;
+import com.reactor.asl.core.MethodBufferSnapshot;
 import com.reactor.asl.core.MethodRuntime;
 import com.reactor.asl.core.MethodUnavailableException;
+import com.reactor.asl.core.ServiceRuntime;
 import com.reactor.asl.mapdb.MapDbAsyncExecutionEngine;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,11 +13,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -212,35 +212,18 @@ class AslConsumerSampleIntegrationTest {
         restTemplate.postForEntity("/api/inventory/SKU-1/publish-snapshot", null, Map.class);
         waitFor(() -> !inventoryDelegate.snapshotEvents().isEmpty(), 5);
 
-        ResponseEntity<List<Map<String, Object>>> adminResponse = restTemplate.exchange(
-                "/asl/api/services",
-                HttpMethod.GET,
-                null,
-                new ParameterizedTypeReference<>() {
-                }
-        );
-        assertEquals(HttpStatus.OK, adminResponse.getStatusCode());
-        assertEquals(14, adminResponse.getBody().size());
-        assertContainsService(adminResponse.getBody(), MAIL_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), CUSTOMER_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), INVENTORY_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), CHAOS_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), BILLING_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), PAYMENT_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), NOTIFICATION_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), REPORTING_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), PRICING_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), FRAUD_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), SHIPMENT_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), LEDGER_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), CATALOG_SERVICE_ID);
-        assertContainsService(adminResponse.getBody(), SEARCH_SERVICE_ID);
+        List<String> serviceIds = registry.services().stream().map(ServiceRuntime::serviceId).toList();
+        assertEquals(14, serviceIds.size());
+        assertTrue(serviceIds.containsAll(List.of(
+                MAIL_SERVICE_ID, CUSTOMER_SERVICE_ID, INVENTORY_SERVICE_ID, CHAOS_SERVICE_ID,
+                BILLING_SERVICE_ID, PAYMENT_SERVICE_ID, NOTIFICATION_SERVICE_ID, REPORTING_SERVICE_ID,
+                PRICING_SERVICE_ID, FRAUD_SERVICE_ID, SHIPMENT_SERVICE_ID, LEDGER_SERVICE_ID,
+                CATALOG_SERVICE_ID, SEARCH_SERVICE_ID
+        )));
+        assertTrue(registry.services().stream().mapToInt(service -> service.methods().size()).sum() >= 14);
 
-        ResponseEntity<Map> summaryResponse = restTemplate.getForEntity("/asl/api/summary", Map.class);
-        assertEquals(HttpStatus.OK, summaryResponse.getStatusCode());
-        assertEquals(14, ((Number) summaryResponse.getBody().get("serviceCount")).intValue());
-        assertTrue(((Number) summaryResponse.getBody().get("methodCount")).intValue() >= 14);
-        assertTrue(summaryResponse.getBody().containsKey("attentionItems"));
+        ResponseEntity<String> removedPortal = restTemplate.getForEntity("/asl/api/summary", String.class);
+        assertEquals(HttpStatus.NOT_FOUND, removedPortal.getStatusCode());
     }
 
     @Test
@@ -264,12 +247,7 @@ class AslConsumerSampleIntegrationTest {
         String failedEntryId = firstEntryId(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID);
         configureScenario("/api/test/scenarios/mail/audit", 0, 0L);
 
-        ResponseEntity<Void> replayResponse = restTemplate.postForEntity(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}/replay", MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, failedEntryId),
-                null,
-                Void.class
-        );
-        assertEquals(HttpStatus.NO_CONTENT, replayResponse.getStatusCode());
+        assertTrue(asyncExecutionEngine.replay(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, failedEntryId));
 
         waitFor(() -> delegate.auditEvents().size() == 1, 5);
         waitFor(() -> totalBuffered(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID) == 0, 5);
@@ -290,23 +268,10 @@ class AslConsumerSampleIntegrationTest {
         waitFor(() -> pendingCount(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID) == 3, 5);
         String entryId = firstEntryId(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID);
 
-        ResponseEntity<Void> deleteResponse = restTemplate.exchange(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}", CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID, entryId),
-                HttpMethod.DELETE,
-                null,
-                Void.class
-        );
-        assertEquals(HttpStatus.NO_CONTENT, deleteResponse.getStatusCode());
+        assertTrue(asyncExecutionEngine.delete(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID, entryId));
         waitFor(() -> pendingCount(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID) == 2, 5);
 
-        ResponseEntity<Map> clearResponse = restTemplate.exchange(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer", CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID),
-                HttpMethod.DELETE,
-                null,
-                Map.class
-        );
-        assertEquals(HttpStatus.OK, clearResponse.getStatusCode());
-        assertEquals(2, ((Number) clearResponse.getBody().get("cleared")).intValue());
+        assertEquals(2, asyncExecutionEngine.clear(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID));
 
         waitFor(() -> totalBuffered(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID) == 0, 5);
         assertTrue(customerDelegate.welcomeEvents().isEmpty());
@@ -335,69 +300,6 @@ class AslConsumerSampleIntegrationTest {
     }
 
     @Test
-    void summaryAndAdminPageSurfaceBlockedQueueAttentionShortcut() {
-        String customerId = createCustomer("attention@company.com", "Attention Customer");
-
-        switchMethodMode(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID, "ASYNC");
-        resizeConsumers(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID, 0);
-
-        restTemplate.postForEntity("/api/customers/" + customerId + "/publish-welcome", null, Map.class);
-        restTemplate.postForEntity("/api/customers/" + customerId + "/publish-welcome", null, Map.class);
-        restTemplate.postForEntity("/api/customers/" + customerId + "/publish-welcome", null, Map.class);
-
-        waitFor(() -> pendingCount(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID) == 3, 5);
-
-        Map<String, Object> summary = summarySnapshot();
-        assertEquals("HIGH", summary.get("overallPressure"));
-        assertEquals(3, ((Number) summary.get("totalQueueDepth")).intValue());
-        assertTrue(hasAttentionItem(summary, CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID, "Queued work is blocked"));
-
-        ResponseEntity<String> pageResponse = restTemplate.getForEntity("/asl", String.class);
-        assertEquals(HttpStatus.OK, pageResponse.getStatusCode());
-        assertTrue(pageResponse.getBody().contains("Open Highest-Priority Lane"));
-        assertTrue(pageResponse.getBody().contains("data-open-service-id=\"" + CUSTOMER_SERVICE_ID + "\""));
-        assertTrue(pageResponse.getBody().contains("data-open-method-id=\"" + CUSTOMER_PUBLISH_METHOD_ID + "\""));
-    }
-
-    @Test
-    void summaryReflectsFailedAsyncLaneAndClearsHighSeverityAfterReplay() {
-        String mailId = createMail("summary-failure@company.com", "summary", "failure");
-
-        configureScenario("/api/test/scenarios/mail/audit", 1, 0L);
-        switchMethodMode(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, "ASYNC");
-        resizeConsumers(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, 1);
-
-        ResponseEntity<Map> publishResponse = restTemplate.postForEntity(
-                "/api/mails/" + mailId + "/publish-audit",
-                null,
-                Map.class
-        );
-        assertEquals(HttpStatus.OK, publishResponse.getStatusCode());
-
-        waitFor(() -> failedCount(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID) == 1, 5);
-
-        Map<String, Object> failedSummary = summarySnapshot();
-        assertEquals("HIGH", failedSummary.get("overallPressure"));
-        assertTrue(((Number) failedSummary.get("failedEntries")).intValue() >= 1);
-        assertTrue(hasAttentionItem(failedSummary, MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, "Failures detected"));
-
-        String failedEntryId = firstEntryId(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID);
-        configureScenario("/api/test/scenarios/mail/audit", 0, 0L);
-        ResponseEntity<Void> replayResponse = restTemplate.postForEntity(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}/replay", MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID, failedEntryId),
-                null,
-                Void.class
-        );
-        assertEquals(HttpStatus.NO_CONTENT, replayResponse.getStatusCode());
-
-        waitFor(() -> totalBuffered(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID) == 0, 5);
-
-        Map<String, Object> recoveredSummary = summarySnapshot();
-        assertEquals(0, ((Number) recoveredSummary.get("failedEntries")).intValue());
-        assertFalse(hasHighAttentionItem(recoveredSummary, MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID));
-    }
-
-    @Test
     void scenarioResetRestoresCleanIdleBaseline() {
         String mailId = createMail("baseline-reset-mail@company.com", "baseline", "failure");
         String customerId = createCustomer("baseline-reset-customer@company.com", "Baseline Reset");
@@ -422,29 +324,14 @@ class AslConsumerSampleIntegrationTest {
 
         waitFor(() -> totalBuffered(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID) == 0, 5);
         waitFor(() -> totalBuffered(CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID) == 0, 5);
-
-        Map<String, Object> summary = summarySnapshot();
-        assertEquals(0, ((Number) summary.get("totalQueueDepth")).intValue());
-        assertEquals(0, ((Number) summary.get("failedEntries")).intValue());
-        assertEquals(0, ((Number) summary.get("totalRejected")).intValue());
-        assertEquals("LOW", summary.get("overallPressure"));
-        assertFalse(hasHighAttentionItem(summary, MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID));
-        assertFalse(hasHighAttentionItem(summary, CUSTOMER_SERVICE_ID, CUSTOMER_PUBLISH_METHOD_ID));
+        assertEquals(0, failedCount(MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID));
     }
 
     @Test
     void stoppedAsyncMethodRejectsImmediatelyAndDoesNotQueue() {
         String mailId = createMail("stop@company.com", "stop", "reject");
 
-        ResponseEntity<String> disableResponse = restTemplate.postForEntity(
-                UriComponentsBuilder
-                        .fromUriString(adminUri("/asl/api/services/{serviceId}/methods/{methodId}/disable", MAIL_SERVICE_ID, MAIL_PUBLISH_METHOD_ID))
-                        .queryParam("message", "maintenance-window")
-                        .toUriString(),
-                null,
-                String.class
-        );
-        assertEquals(HttpStatus.OK, disableResponse.getStatusCode());
+        registry.service(MAIL_SERVICE_ID).methodById(MAIL_PUBLISH_METHOD_ID).disable("maintenance-window");
 
         ResponseEntity<String> publishResponse = restTemplate.postForEntity(
                 "/api/mails/" + mailId + "/publish-audit",
@@ -532,96 +419,44 @@ class AslConsumerSampleIntegrationTest {
     }
 
     private void switchMethodMode(String serviceId, String methodId, String executionMode) {
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/mode", serviceId, methodId),
-                Map.of("executionMode", executionMode),
-                String.class
-        );
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertTrue(response.getBody().contains("\"executionMode\":\"" + executionMode + "\""));
+        MethodRuntime runtime = registry.service(serviceId).methodById(methodId);
+        runtime.switchMode(ExecutionMode.valueOf(executionMode));
+        asyncExecutionEngine.applyRuntime(runtime);
+        assertEquals(ExecutionMode.valueOf(executionMode), runtime.snapshot().executionMode());
     }
 
     private void resizeConsumers(String serviceId, String methodId, int consumerThreads) {
-        ResponseEntity<String> response = restTemplate.postForEntity(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/consumer-threads", serviceId, methodId),
-                Map.of("consumerThreads", consumerThreads),
-                String.class
-        );
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertTrue(response.getBody().contains("\"consumerThreads\":" + consumerThreads));
+        MethodRuntime runtime = registry.service(serviceId).methodById(methodId);
+        runtime.setConsumerThreads(consumerThreads);
+        asyncExecutionEngine.applyRuntime(runtime);
+        assertEquals(consumerThreads, runtime.snapshot().consumerThreads());
     }
 
-    private int pendingCount(String serviceId, String methodId) {
-        return ((Number) bufferSnapshot(serviceId, methodId).get("pendingCount")).intValue();
+    private long pendingCount(String serviceId, String methodId) {
+        return bufferSnapshot(serviceId, methodId).pendingCount();
     }
 
-    private int failedCount(String serviceId, String methodId) {
-        return ((Number) bufferSnapshot(serviceId, methodId).get("failedCount")).intValue();
+    private long failedCount(String serviceId, String methodId) {
+        return bufferSnapshot(serviceId, methodId).failedCount();
     }
 
-    private int inProgressCount(String serviceId, String methodId) {
-        return ((Number) bufferSnapshot(serviceId, methodId).get("inProgressCount")).intValue();
+    private long inProgressCount(String serviceId, String methodId) {
+        return bufferSnapshot(serviceId, methodId).inProgressCount();
     }
 
-    private int totalBuffered(String serviceId, String methodId) {
-        Map<String, Object> snapshot = bufferSnapshot(serviceId, methodId);
-        return ((Number) snapshot.get("pendingCount")).intValue()
-                + ((Number) snapshot.get("failedCount")).intValue()
-                + ((Number) snapshot.get("inProgressCount")).intValue();
+    private long totalBuffered(String serviceId, String methodId) {
+        MethodBufferSnapshot snapshot = bufferSnapshot(serviceId, methodId);
+        return snapshot.pendingCount() + snapshot.failedCount() + snapshot.inProgressCount();
     }
 
-    @SuppressWarnings("unchecked")
     private String firstEntryId(String serviceId, String methodId) {
-        List<Map<String, Object>> entries = (List<Map<String, Object>>) bufferSnapshot(serviceId, methodId).get("entries");
-        assertFalse(entries.isEmpty());
-        return String.valueOf(entries.getFirst().get("entryId"));
+        MethodBufferSnapshot snapshot = bufferSnapshot(serviceId, methodId);
+        assertFalse(snapshot.entries().isEmpty());
+        return snapshot.entries().getFirst().entryId();
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> bufferSnapshot(String serviceId, String methodId) {
-        ResponseEntity<Map> response = restTemplate.exchange(
-                adminUri("/asl/api/services/{serviceId}/methods/{methodId}/buffer", serviceId, methodId),
-                HttpMethod.GET,
-                HttpEntity.EMPTY,
-                Map.class
-        );
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        return response.getBody();
-    }
-
-    private String adminUri(String template, Object... variables) {
-        return UriComponentsBuilder.fromPath(template)
-                .buildAndExpand(variables)
-                .encode()
-                .toUriString();
-    }
-
-    private Map<String, Object> summarySnapshot() {
-        ResponseEntity<Map> response = restTemplate.getForEntity("/asl/api/summary", Map.class);
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        return response.getBody();
-    }
-
-    @SuppressWarnings("unchecked")
-    private static boolean hasAttentionItem(Map<String, Object> summary, String serviceId, String methodId, String headline) {
-        List<Map<String, Object>> attentionItems = (List<Map<String, Object>>) summary.get("attentionItems");
-        return attentionItems.stream().anyMatch(item ->
-                serviceId.equals(item.get("serviceId"))
-                        && methodId.equals(item.get("methodId"))
-                        && headline.equals(item.get("headline")));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static boolean hasHighAttentionItem(Map<String, Object> summary, String serviceId, String methodId) {
-        List<Map<String, Object>> attentionItems = (List<Map<String, Object>>) summary.get("attentionItems");
-        return attentionItems.stream().anyMatch(item ->
-                serviceId.equals(item.get("serviceId"))
-                        && methodId.equals(item.get("methodId"))
-                        && "HIGH".equals(item.get("severity")));
-    }
-
-    private static void assertContainsService(List<Map<String, Object>> services, String serviceId) {
-        assertTrue(services.stream().anyMatch(service -> serviceId.equals(service.get("serviceId"))));
+    private MethodBufferSnapshot bufferSnapshot(String serviceId, String methodId) {
+        return asyncExecutionEngine.snapshot(serviceId, methodId, 50);
     }
 
     private static void waitFor(Check check, int timeoutSeconds) {

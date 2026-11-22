@@ -26,39 +26,13 @@ Bu doküman ASL’nin Spring Boot üzerinden dışarı açtığı bütün proper
 | `asl.observability.max-method-meters` | `2000` | Metot bazlı metrik üretilecek en fazla governed metot sayısı; aşılırsa startup durur. MapDB lane metriklerini de sınırlar (fazla lane'ler loglanır, metrik üretilmez). |
 | `asl.observability.method-latency-enabled` | `false` | Senkron governed çağrılar için metot başına `asl.method.duration` Timer yayınlar. Her çağrıya iki saat okuması eklediği için varsayılan kapalıdır. |
 
-## Admin, Dashboard ve Güvenlik
+## Metot Bazlı Başlangıç Override’ı
 
-| Property | Varsayılan | Ne işe yarar, verilmezse ne olur? |
-|---|---:|---|
-| `asl.admin.enabled` | `false` | UI ve REST kontrol düzlemi yalnızca açıkça etkinleştirildiğinde oluşur. |
-| `asl.admin.path` | `/asl` | Admin arayüzünün kök yolu. |
-| `asl.admin.api-path` | `/asl/api` | Admin REST kök yolu. |
-| `asl.admin.buffer-preview-limit` | `50` | Bir metot için döndürülen en fazla queue kayıt sayısı. |
-| `asl.admin.security.allow-unauthenticated` | `false` | `false` iken `AslAdminAccessPolicy` bean’i zorunludur. Yalnızca izole demoda `true` yapılmalıdır. |
-| `asl.admin.security.origin-check-enabled` | `true` | `Origin`/`Referer` başlığı istek host'u veya `allowed-origins` ile eşleşmeyen durum değiştiren admin isteklerini 403 ile reddeder. Bu başlıkları göndermeyen istemciler (tarayıcı dışı) etkilenmez. |
-| `asl.admin.security.allowed-origins` | `[]` | Mutasyon yapmasına izin verilen ek origin'ler (`scheme://host[:port]`), örneğin reverse proxy arkasındaki public URL. |
-| `asl.admin.security.audit-reads` | `false` | Yetkili GET/HEAD/OPTIONS çağrılarını da audit eder. Mutasyonlar ve reddedilen çağrılar her durumda audit edilir. |
-| `asl.admin.dashboard.attention-limit` | `8` | Operasyon özetinde gösterilecek en fazla dikkat kaydı. |
-| `asl.admin.dashboard.medium-utilization-percent` | `40` | Orta baskı eşiği. |
-| `asl.admin.dashboard.high-utilization-percent` | `80` | Yüksek baskı eşiği; orta eşikten büyük olmalıdır. |
-| `asl.admin.dashboard.default-page-size` | `50` | Projection isteğinde `size=0` gönderilirse kullanılacak sayfa boyutu. |
-| `asl.admin.dashboard.max-page-size` | `200` | Projection için kabul edilen en büyük sayfa boyutu. |
-| `asl.admin.dashboard.fetch-timeout-ms` | `5000` | AJAX çağrısının `AbortController` ile kesileceği süre. |
-| `asl.admin.dashboard.refresh.live-refresh-enabled` | `true` | Arayüz açıldığında otomatik metrik/projection yenilemeyi başlatır. |
-| `asl.admin.dashboard.refresh.live-buffer-enabled` | `true` | Seçili metodun buffer bilgisini de canlı döngüde günceller. |
-| `asl.admin.dashboard.refresh.default-interval-ms` | `5000` | İlk canlı yenileme aralığı. |
-| `asl.admin.dashboard.refresh.interval-options-ms` | `[3000, 5000, 10000, 30000]` | Arayüzde seçilebilen yenileme aralıkları. |
-| `asl.admin.dashboard.refresh.change-flash-ms` | `1400` | Değişen değerin vurgulu kalacağı süre. |
-| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | `1600` | Başarı mesajının ekranda kalacağı süre. |
-| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | `3200` | Hata mesajının ekranda kalacağı süre. |
-
-### Metot Bazlı Başlangıç Override’ı
-
-`asl.runtime.services` (core starter, admin gerekmez) ve `asl.admin.services` (admin starter, geriye uyumluluk için korunur) aynı yapıdaki dinamik map kökleridir. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır. Admin'siz worker'larda da çalıştığı için `asl.runtime.services` tercih edilmelidir. Aynı metot iki yerde de ayarlanırsa admin değerleri sonra uygulanır ve geçerli olur. Bilinmeyen servis veya metot anahtarı startup'ı durdurur.
+`asl.runtime.services` (core starter) dinamik bir map köküdür. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır. Bilinmeyen servis veya metot anahtarı startup'ı durdurur. Merkezi admin server'dan gelen override'lar bu değerlerin üstüne uygulanır; kaldırıldıklarında metot buradaki değere döner. Kaldırılan uygulama içi portalın `asl.admin.services` anahtarı artık okunmaz; değerleri buraya taşı.
 
 ```yaml
 asl:
-  runtime:            # veya: admin
+  runtime:
     services:
       "mail.service":
         methods:
@@ -77,94 +51,6 @@ asl:
 | `.unavailable-message` | annotation/runtime varsayılanı | Disabled çağrıya dönen mesajı değiştirir. |
 | `.execution-mode` | `SYNC` | `SYNC` veya `ASYNC`; async için uygun `void` metot ve engine gerekir. |
 | `.consumer-threads` | annotation değeri | Lane consumer hedefini belirler; sıfır değeri iş kabul eder fakat tüketmez. |
-
-## Admin Arayüz Metinleri
-
-Aşağıdaki ayarlar yalnızca ekranda görülen yazıları değiştirir; runtime davranışını etkilemez.
-
-| Property | Varsayılan |
-|---|---|
-| `asl.admin.ui.page-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-title` | `ASL Control Plane` |
-| `asl.admin.ui.hero-description` | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
-| `asl.admin.ui.rest-badge-prefix` | `REST:` |
-| `asl.admin.ui.empty-title` | `No governed services registered` |
-| `asl.admin.ui.empty-description` | `The admin UI is active, but the runtime registry is empty.` |
-| `asl.admin.ui.services-title` | `Services` |
-| `asl.admin.ui.service-search-placeholder` | `Search services` |
-| `asl.admin.ui.service-tab-note` | `Open this service subform` |
-| `asl.admin.ui.service-detail-note` | `Select a method from the left subform list to manage its full details.` |
-| `asl.admin.ui.methods-title` | `Methods` |
-| `asl.admin.ui.all-label` | `All` |
-| `asl.admin.ui.no-parameters-label` | `No parameters` |
-| `asl.admin.ui.running-label` | `RUNNING` |
-| `asl.admin.ui.stopped-label` | `STOPPED` |
-| `asl.admin.ui.sync-mode-label` | `SYNC` |
-| `asl.admin.ui.async-label` | `ASYNC` |
-| `asl.admin.ui.error-label` | `ERROR` |
-| `asl.admin.ui.success-label` | `Success` |
-| `asl.admin.ui.rejected-label` | `Rejected` |
-| `asl.admin.ui.load-label` | `Load` |
-| `asl.admin.ui.peak-in-flight-label` | `Peak In Flight` |
-| `asl.admin.ui.execution-mode-label` | `Execution Mode` |
-| `asl.admin.ui.consumer-threads-label` | `Consumer Threads` |
-| `asl.admin.ui.last-error-label` | `Last Error` |
-| `asl.admin.ui.none-label` | `none` |
-| `asl.admin.ui.method-state-title` | `Method State` |
-| `asl.admin.ui.start-method-label` | `Start Method` |
-| `asl.admin.ui.stop-method-label` | `Stop Method` |
-| `asl.admin.ui.disable-placeholder` | `Reason shown to callers` |
-| `asl.admin.ui.method-state-hint` | `Stopping a method returns the configured message to incoming callers.` |
-| `asl.admin.ui.sync-concurrency-title` | `Sync Concurrency` |
-| `asl.admin.ui.update-limit-label` | `Update Limit` |
-| `asl.admin.ui.sync-concurrency-hint` | `Defines how many concurrent executions are allowed for this method.` |
-| `asl.admin.ui.async-controls-title` | `Async Controls` |
-| `asl.admin.ui.apply-mode-label` | `Apply` |
-| `asl.admin.ui.update-consumers-label` | `Update` |
-| `asl.admin.ui.async-hint` | `Use async mode only for methods designed to be safely queued and consumed later.` |
-| `asl.admin.ui.queue-buffer-title` | `Queue Buffer` |
-| `asl.admin.ui.load-overview-title` | `Load Overview` |
-| `asl.admin.ui.no-buffer-message` | `No buffer provider is currently attached to this method.` |
-| `asl.admin.ui.clear-buffer-label` | `Clear Buffer` |
-| `asl.admin.ui.replay-entry-label` | `Replay Entry` |
-| `asl.admin.ui.delete-entry-label` | `Delete Entry` |
-| `asl.admin.ui.processed-label` | `Processed` |
-| `asl.admin.ui.active-work-label` | `Active Work` |
-| `asl.admin.ui.queue-depth-label` | `Queue Depth` |
-| `asl.admin.ui.utilization-label` | `Utilization` |
-| `asl.admin.ui.work-pressure-label` | `Work Pressure` |
-| `asl.admin.ui.worker-capacity-label` | `Worker Capacity` |
-| `asl.admin.ui.live-refresh-label` | `Live Refresh` |
-| `asl.admin.ui.refresh-now-label` | `Refresh Now` |
-| `asl.admin.ui.refresh-interval-label` | `Refresh Interval` |
-| `asl.admin.ui.refresh-buffer-label` | `Refresh Buffer` |
-| `asl.admin.ui.live-buffer-label` | `Live Buffer` |
-| `asl.admin.ui.scroll-top-label` | `Top` |
-| `asl.admin.ui.scroll-bottom-label` | `Bottom` |
-| `asl.admin.ui.ready-status-label` | `Ready` |
-| `asl.admin.ui.applying-change-message` | `Applying change...` |
-| `asl.admin.ui.change-applied-message` | `Change applied` |
-| `asl.admin.ui.request-failed-message` | `Request failed` |
-| `asl.admin.ui.refreshing-metrics-message` | `Refreshing live metrics...` |
-| `asl.admin.ui.metrics-refreshed-message` | `Metrics refreshed` |
-| `asl.admin.ui.refreshing-buffer-message` | `Refreshing buffer...` |
-| `asl.admin.ui.buffer-refreshed-message` | `Buffer refreshed` |
-| `asl.admin.ui.entry-id-label` | `Entry Id` |
-| `asl.admin.ui.attempts-label` | `Attempts` |
-| `asl.admin.ui.codec-label` | `Codec` |
-| `asl.admin.ui.payload-type-label` | `Payload Type` |
-| `asl.admin.ui.payload-version-label` | `Payload Version` |
-| `asl.admin.ui.error-type-label` | `Error Type` |
-| `asl.admin.ui.error-category-label` | `Error Category` |
-| `asl.admin.ui.methods-count-suffix` | `methods` |
-| `asl.admin.ui.async-capable-suffix` | `async-capable` |
-| `asl.admin.ui.stopped-suffix` | `stopped` |
-| `asl.admin.ui.methods-with-errors-suffix` | `with errors` |
-| `asl.admin.ui.pending-label` | `Pending` |
-| `asl.admin.ui.failed-label` | `Failed` |
-| `asl.admin.ui.in-progress-label` | `In progress` |
-
-Bu metinleri Türkçeleştirmek isteyen uygulama bütün değerleri kendi `application.yml` dosyasında değiştirebilir. Kütüphanenin hazır değerleri İngilizcedir.
 
 ## Merkezi Admin Client
 

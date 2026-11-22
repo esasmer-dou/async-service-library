@@ -1,40 +1,29 @@
-# Benchmark ve Rapor Dokümanları
+# Raporlar
 
-Bu dizin, ASL kontrol paneli için örnek benchmark raporlarını ve rapor okuma notlarını içerir. Amaç, operatörün “sistem sakin mi, baskı altında mı, müdahale gerekiyor mu?” sorularına hızlı cevap verebilmesidir.
+Üretilen raporlar repoya commit edilmez; yerelde yazılır ya da CI artifact'i olarak yüklenir.
 
-## Kapsam
+## Kurtarma stres testi (MapDB abuse)
 
-- Idle durum için örnek kontrol paneli benchmark raporu.
-- Backlog ve attention üreten durum için örnek benchmark raporu.
-- Gate summary, release note ve trend raporları için beklenen dosya yerleri.
-- MapDB yıpratma testlerinin ürettiği rapor dizinleri.
+- Çıktı kökü: `reports/mapdb-abuse/<zaman>/` (Türkçe özet `tr/reports/mapdb-abuse/` altında)
+- Çalıştırıcı: [run-mapdb-abuse-suite.ps1](../../scripts/run-mapdb-abuse-suite.ps1) (PowerShell 7)
+- Gece CI: [mapdb-abuse-nightly.yml](../../.github/workflows/mapdb-abuse-nightly.yml)
 
-## Ana Dosyalar
+Test, merkezi `asl-admin-server`'ı ve admin client'ı açık consumer sample'ı başlatır. Her senaryo sample'ı
+sert biçimde öldürür, yeniden başlatır ve kuyruktaki işin kaybolmadığını kontrol eder. Mod ve consumer
+değişiklikleri, kuyruk listeleme ve replay, bir operatörün kullandığı yoldan, admin server üzerinden yapılır.
 
-- [Idle benchmark örneği](example-control-plane-benchmark-idle.md)
-- [Backlog benchmark örneği](example-control-plane-benchmark-backlog.md)
+| Senaryo | Neyi kanıtlar |
+| --- | --- |
+| `pending-survives-force-kill` | Bekleyen iş sert kapatmadan sonra kalır ve yeniden başlatınca çalışır |
+| `failed-queue-replay-after-force-kill` | Başarısız kayıt yeniden başlatmadan sonra kalır ve replay edilebilir |
+| `in-progress-recovery-after-force-kill` | Çalışırken kesilen iş korunur ve yeniden başlatınca teslim edilir |
+| `repeated-pending-force-kill-loop` | Üç ardışık kapatmada bekleyen iş doğru birikir |
+| `header-corruption-startup-recovery` | Bozuk depo açılışta arşivlenir ve yeniden oluşturulur |
 
-Gerçek çalıştırma çıktıları repoya commit edilmez; yerelde veya CI artifact’i olarak üretilir:
+Her çalıştırma `mapdb-abuse-suite-summary.json` ve `mapdb-abuse-suite-summary.md` üretir; her sample
+başlatması ve admin server için birer log çifti yazar.
 
-- `tr/reports/real-sample/control-plane-benchmark-gate-summary.md`
-- `tr/reports/real-sample/control-plane-benchmark-gate-release-note.md`
-- `tr/reports/real-sample/control-plane-benchmark-gate-trend.md`
-- `tr/reports/mapdb-abuse/`
+## Veri yolu performansı
 
-## Nasıl Okunmalı?
-
-- Idle raporda pressure değerinin `LOW`, queue depth değerinin `0`, failed entry sayısının `0` olması beklenir.
-- Backlog raporda pressure değerinin `HIGH` olması, queue depth ve failed entry sinyallerinin görünmesi beklenir.
-- Gate summary, threshold değerlerinin geçilip geçilmediğini tek sayfada gösterir.
-- Trend raporu, aynı benchmark’ın zaman içindeki sapmasını görmek için kullanılır.
-
-## İlgili Araçlar
-
-- Benchmark gate script’i: [run-control-plane-benchmark-gate.ps1](../../scripts/run-control-plane-benchmark-gate.ps1)
-- Benchmark doğrulama script’i: [assert-control-plane-benchmark.ps1](../../scripts/assert-control-plane-benchmark.ps1)
-- MapDB yıpratma suite’i: [run-mapdb-abuse-suite.ps1](../../scripts/run-mapdb-abuse-suite.ps1)
-- Nightly destructive CI workflow: [mapdb-abuse-nightly.yml](../../.github/workflows/mapdb-abuse-nightly.yml)
-
-## Not
-
-Otomatik üretilen tarihsel snapshot dosyaları birebir Türkçeleştirilip repoda tutulmaz. Kalıcı dokümanlarda Türkçe açıklama dili korunur; gerçek ölçüm çıktıları ise çalıştırıldığı ortamın artifact’i olarak saklanır.
+[data-plane-performance.yml](../../.github/workflows/data-plane-performance.yml) JMH çıktılarını
+`asl-benchmarks/target/performance-gate` altından yükler.
