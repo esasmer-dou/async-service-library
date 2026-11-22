@@ -307,7 +307,7 @@ Geçmiş, her replica ve metot için sabit boyutlu bir halkadır (`retention / r
 
 Varsayılan 15 sn heartbeat ve 1 dk geçmiş adımında yük yaklaşık on beş kat düşüktür. Yük senaryosunda canlı heap 6–7 MB civarında kalır; geri kalanı JVM'in kendisidir (kod, sınıf metadata'sı, paylaşılan sınıf arşivi). Çalıştırılabilir jar yaklaşık 17 MB'tır; büyük kısmı MapDB ve kütüphaneleridir.
 
-Kubernetes'te sunucuyu küçük bir ReadWriteOnce volume ile (veya aynı veriyi heap'te tutan `storage.mode=MEMORY` ile volume olmadan) tek replica'lı Deployment olarak çalıştır, portali TLS'li ingress üzerinden aç ve `/asl/v1/*` yollarına yalnızca küme içinden erişilebilsin. Sunucu düz HTTP konuşur; TLS ingress'e aittir.
+Kubernetes'te sunucuyu küçük bir ReadWriteOnce volume ile (veya aynı veriyi heap'te tutan `storage.mode=MEMORY` ile volume olmadan) tek replica'lı Deployment olarak çalıştır, portali TLS'li ingress üzerinden aç ve `/asl/v1/*` yollarına yalnızca küme içinden erişilebilsin. Sunucu düz HTTP konuşur; TLS ingress'e aittir. `asl-admin-server` adlı bir Service, Kubernetes'in namespace'teki her pod'a `ASL_ADMIN_SERVER_PORT=tcp://…` gibi service-link değişkenleri koymasına yol açar; sunucu bu biçimdeki değerleri yok sayar, pod spec'inde `enableServiceLinks: false` vermek ise onları tamamen kaldırır.
 
 ## 9. Admin Server Portal API'si
 

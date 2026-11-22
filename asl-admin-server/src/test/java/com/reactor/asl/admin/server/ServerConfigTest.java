@@ -51,6 +51,30 @@ class ServerConfigTest {
     }
 
     @Test
+    void ignoresKubernetesServiceLinksOfAServiceNamedAslAdminServer() {
+        // Found on a real cluster: the Service asl-admin-server made the server crash with NumberFormatException.
+        Map<String, String> environment = new java.util.HashMap<>(Map.of(
+                "ASL_ADMIN_SECRET", "0123456789abcdef-x", "ASL_ADMIN_USER", "admin",
+                "ASL_ADMIN_SERVER_PORT", "tcp://10.107.19.98:8080",
+                "ASL_ADMIN_SERVER_SERVICE_HOST", "10.107.19.98",
+                "ASL_ADMIN_SERVER_SERVICE_PORT", "8080",
+                "ASL_ADMIN_SERVER_SERVICE_PORT_HTTP", "8080",
+                "ASL_ADMIN_SERVER_PORT_8080_TCP", "tcp://10.107.19.98:8080",
+                "ASL_ADMIN_SERVER_PORT_8080_TCP_PROTO", "tcp",
+                "ASL_ADMIN_SERVER_PORT_8080_TCP_PORT", "8080",
+                "ASL_ADMIN_SERVER_PORT_8080_TCP_ADDR", "10.107.19.98"));
+        environment.put("ASL_ADMIN_PASSWORD", "pw");
+        environment.put("ASL_ADMIN_SERVER_THREADS", "3");
+        ServerConfig config = ServerConfig.load(new String[0], environment, new Properties());
+        assertEquals(8080, config.port);
+        assertEquals(3, config.threads, "real settings in the same prefix still apply");
+
+        ServerConfig explicit = ServerConfig.load(new String[0], Map.of("ASL_ADMIN_SECRET", "0123456789abcdef-x",
+                "ASL_ADMIN_USER", "admin", "ASL_ADMIN_PASSWORD", "pw", "ASL_ADMIN_SERVER_PORT", "9090"), new Properties());
+        assertEquals(9090, explicit.port);
+    }
+
+    @Test
     void parsesUsersDurationsAndSizes() {
         ServerConfig config = ServerConfig.of(Map.of("secret", "0123456789abcdef-x",
                 "security.users", "alice:pw1:OPERATOR, bob:{sha256}abc, carol:pw3:viewer",

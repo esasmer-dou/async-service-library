@@ -118,6 +118,11 @@ public final class ServerConfig {
         for (Map.Entry<String, String> entry : environment.entrySet()) {
             String name = entry.getKey();
             if (name.startsWith("ASL_ADMIN_SERVER_")) {
+                if (isKubernetesServiceLink(name, entry.getValue())) {
+                    // A Kubernetes Service named asl-admin-server injects ASL_ADMIN_SERVER_PORT=tcp://<ip>:<port>,
+                    // ASL_ADMIN_SERVER_SERVICE_HOST and similar into every pod of the namespace. They are not settings.
+                    continue;
+                }
                 values.put(fromEnvironment(name), entry.getValue());
             } else if (name.equals("ASL_ADMIN_SECRET") || name.equals("ASL_ADMIN_USER") || name.equals("ASL_ADMIN_PASSWORD")) {
                 values.put(name, entry.getValue());
@@ -200,6 +205,22 @@ public final class ServerConfig {
             result.put(arg.substring(2, equals), arg.substring(equals + 1));
         }
         return result;
+    }
+
+    /**
+     * Docker links and Kubernetes service links for a Service named {@code asl-admin-server} create
+     * {@code ASL_ADMIN_SERVER_PORT=tcp://10.0.0.5:8080}, {@code ASL_ADMIN_SERVER_SERVICE_HOST},
+     * {@code ASL_ADMIN_SERVER_SERVICE_PORT[_<name>]} and {@code ASL_ADMIN_SERVER_PORT_<port>_<PROTO>[_PROTO|_PORT|_ADDR]}.
+     */
+    static boolean isKubernetesServiceLink(String name, String value) {
+        String tail = name.substring("ASL_ADMIN_SERVER_".length());
+        if (tail.startsWith("SERVICE_HOST") || tail.startsWith("SERVICE_PORT")) {
+            return true;
+        }
+        if (tail.startsWith("PORT_") && tail.matches("PORT_\\d+_(TCP|UDP|SCTP)(_PROTO|_PORT|_ADDR)?")) {
+            return true;
+        }
+        return tail.equals("PORT") && value != null && value.matches("(tcp|udp|sctp)://.*");
     }
 
     /** {@code ASL_ADMIN_SERVER_WATCH_IDLE_TIMEOUT} cannot tell dots from dashes; known keys resolve it. */

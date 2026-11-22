@@ -307,7 +307,7 @@ History is a fixed ring per replica and method (`retention / resolution` points,
 
 At the default 15 s heartbeat and 1 min history step the load is about fifteen times lower. The live heap stays around 6–7 MB in the stress case; the rest is the JVM itself (code, class metadata, shared class archive). The executable jar is about 17 MB, mostly MapDB and its libraries.
 
-In Kubernetes run the server as a single-replica Deployment with a small ReadWriteOnce volume (or `storage.mode=MEMORY`, which keeps the same data on the heap, and no volume), expose the portal through your ingress with TLS, and keep `/asl/v1/*` reachable only from inside the cluster. The server speaks plain HTTP; TLS belongs to the ingress.
+In Kubernetes run the server as a single-replica Deployment with a small ReadWriteOnce volume (or `storage.mode=MEMORY`, which keeps the same data on the heap, and no volume), expose the portal through your ingress with TLS, and keep `/asl/v1/*` reachable only from inside the cluster. The server speaks plain HTTP; TLS belongs to the ingress. A Service named `asl-admin-server` makes Kubernetes put `ASL_ADMIN_SERVER_PORT=tcp://…` and similar service-link variables into every pod of the namespace; the server ignores values in that form, and `enableServiceLinks: false` on the pod spec removes them altogether.
 
 ## 9. Admin Server Portal API
 
