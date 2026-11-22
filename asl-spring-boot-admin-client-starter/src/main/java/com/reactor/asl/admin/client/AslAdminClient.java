@@ -220,6 +220,9 @@ public final class AslAdminClient implements AutoCloseable {
         RegisterReply reply = AslAdminCodec.decodeRegisterReply(response.body());
         sessionId = reply.sessionId();
         seq = 0;
+        // Command ids only identify a re-delivery within one session. A new session may come from a
+        // restarted admin server whose ids start again, so an old answer must not be replayed for them.
+        executed.clear();
         forceFull = true;
         if (reply.intervalMillis() > 0) {
             intervalMillis = reply.intervalMillis();

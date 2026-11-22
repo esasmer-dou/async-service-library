@@ -217,6 +217,24 @@ class AslAdminClientTest {
     }
 
     @Test
+    void forgetsExecutedCommandsWhenANewSessionStarts() throws Exception {
+        registry.attachAsyncExecutionEngine(engine);
+        AslAdminClient client = client(true);
+        register(client);
+        transport.reply(200, AslAdminCodec.encode(new BeatReply(false, 0, null, List.of(new Command(1, Command.CLEAR_QUEUE, 0, null, 0)))));
+        client.runOnce();
+        assertEquals(1, engine.clears);
+
+        // The admin server restarted: the old session is gone and the new server may reuse command ids.
+        transport.reply(410, new byte[0]);
+        client.runOnce();
+        transport.reply(200, AslAdminCodec.encode(new RegisterReply(43, 15_000, null)));
+        transport.reply(200, AslAdminCodec.encode(new BeatReply(false, 0, null, List.of(new Command(1, Command.CLEAR_QUEUE, 0, null, 0)))));
+        client.runOnce();
+        assertEquals(2, engine.clears, "a command of a new session runs even if an old one had the same id");
+    }
+
+    @Test
     void browseIsRejectedUnlessEnabledAndFailuresAreReported() throws Exception {
         AslAdminClient client = client(false);
         register(client);

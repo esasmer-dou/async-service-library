@@ -41,7 +41,8 @@ public final class InstanceRegistry {
     private final Map<Long, InstanceState> sessions = new ConcurrentHashMap<>();
     private final Map<String, AppState> apps = new ConcurrentHashMap<>();
     private final AtomicLong version;
-    private final AtomicLong commandIds = new AtomicLong();
+    /** Starts at start time × 1000, so ids keep growing across restarts and a pod never mistakes a new command for one it already ran. */
+    private final AtomicLong commandIds;
     /** Replicas of one application send the same names; one shared copy keeps the heap flat as pods are added. */
     private final Map<Object, Object> canonical = new ConcurrentHashMap<>();
     private static final int MAX_CANONICAL = 200_000;
@@ -59,6 +60,8 @@ public final class InstanceRegistry {
         this.watchIdleMillis = config.watchIdleTimeout.toMillis();
         this.expireAfterMillis = config.expireAfter.toMillis();
         this.commandTtlMillis = config.commandTtl.toMillis();
+        // Stays below 2^53 (exact in the portal's JavaScript) until the year 2255.
+        this.commandIds = new AtomicLong(Math.max(0L, nowMillis) * 1_000L);
         long stored = store.loadVersion();
         this.version = new AtomicLong(Math.max(stored, nowMillis / 1000));
         for (Map.Entry<String, Map<MethodKey, MethodSetting>> entry : store.loadOverrides().entrySet()) {

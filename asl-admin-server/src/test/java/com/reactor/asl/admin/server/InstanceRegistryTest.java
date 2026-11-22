@@ -213,6 +213,20 @@ class InstanceRegistryTest {
     }
 
     @Test
+    void commandIdsKeepGrowingAcrossRestarts() {
+        register("orders-a");
+        long last = 0;
+        for (int i = 0; i < 3; i++) {
+            last = registry.enqueueCommand("orders", "orders-a", CREATE, Command.BROWSE_QUEUE, null, 1, "b", now).get(0);
+        }
+        InstanceRegistry restarted = new InstanceRegistry(config, store, now + 1);
+        restarted.register(new Register("orders", "orders-a", "t", CATALOG), now + 1);
+        long first = restarted.enqueueCommand("orders", "orders-a", CREATE, Command.BROWSE_QUEUE, null, 1, "b", now + 1).get(0);
+        assertTrue(first > last, "a pod keeps the answers of ids it already ran; a restarted server must not reuse them");
+        assertTrue(first < (1L << 53), "ids stay exact as JavaScript numbers in the portal");
+    }
+
+    @Test
     void sequenceGapAndUnknownSession() {
         RegisterReply a = register("orders-a");
         registry.beat(beat(a.sessionId(), 1, 0, Beat.FULL), now);
