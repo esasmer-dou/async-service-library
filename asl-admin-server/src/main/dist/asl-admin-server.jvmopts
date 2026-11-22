@@ -1,0 +1,13 @@
+# JVM options for the ASL admin server, tuned for the smallest footprint.
+# Use with: java @asl-admin-server.jvmopts -jar asl-admin-server-<version>-exec.jar
+# Raise -Xmx to 32m above roughly 2,000 history series (replicas x methods).
+-Xmx16m
+-Xms4m
+-Xss256k
+-XX:+UseSerialGC
+-XX:MinHeapFreeRatio=10
+-XX:MaxHeapFreeRatio=30
+-XX:TieredStopAtLevel=1
+-XX:CICompilerCount=1
+-XX:ReservedCodeCacheSize=12m
+-XX:-UsePerfData

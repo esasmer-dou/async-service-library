@@ -11,7 +11,9 @@ import com.reactor.asl.core.JavaObjectStreamAsyncPayloadCodec;
 import com.reactor.asl.core.MethodBufferSnapshot;
 import com.reactor.asl.core.MethodDescriptor;
 import com.reactor.asl.core.MethodRuntime;
+import com.reactor.asl.core.RuntimeErrorDetailPolicy;
 import com.reactor.asl.core.ServiceDescriptor;
+import com.reactor.asl.mapdb.MapDbCorruptionPolicy;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -84,7 +86,7 @@ class AslPropertiesAndAutoConfigurationTest {
         async.setRecoveredInProgressMessage("Recovered async work");
         async.setTransactionsEnabled(true);
         async.setMemoryMappedEnabled(false);
-        async.setResetIfCorrupt(true);
+        async.setCorruptionPolicy(MapDbCorruptionPolicy.ARCHIVE_AND_RESET);
 
         assertTrue(async.isEnabled());
         assertEquals("queue.db", async.getPath());
@@ -96,14 +98,18 @@ class AslPropertiesAndAutoConfigurationTest {
         assertEquals("Recovered async work", async.getRecoveredInProgressMessage());
         assertTrue(async.isTransactionsEnabled());
         assertFalse(async.isMemoryMappedEnabled());
-        assertTrue(async.isResetIfCorrupt());
+        assertEquals(MapDbCorruptionPolicy.ARCHIVE_AND_RESET, async.getCorruptionPolicy());
 
         AslRuntimeProperties runtime = new AslRuntimeProperties();
         runtime.setDefaultUnavailableMessage("Service paused by policy");
         runtime.setMaxConcurrencyExceededMessageTemplate("Concurrency cap hit: %d");
+        runtime.setMaxLastErrorCharacters(512);
+        runtime.setErrorDetailPolicy(RuntimeErrorDetailPolicy.TYPE_AND_MESSAGE);
 
         assertEquals("Service paused by policy", runtime.getDefaultUnavailableMessage());
         assertEquals("Concurrency cap hit: %d", runtime.getMaxConcurrencyExceededMessageTemplate());
+        assertEquals(512, runtime.getMaxLastErrorCharacters());
+        assertEquals(RuntimeErrorDetailPolicy.TYPE_AND_MESSAGE, runtime.getErrorDetailPolicy());
     }
 
     @Test
@@ -111,9 +117,13 @@ class AslPropertiesAndAutoConfigurationTest {
         String dbPath = testDataPath("ctx-queue").toString().replace("\\", "/");
 
         new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(AslCoreAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(
+                        AslCoreAutoConfiguration.class,
+                        AslMapDbAutoConfiguration.class
+                ))
                 .withPropertyValues(
                         "asl.async.mapdb.enabled=true",
+                        "asl.async.mapdb.codec=java-object-stream",
                         "asl.async.mapdb.path=" + dbPath
                 )
                 .run(context -> {
@@ -126,7 +136,10 @@ class AslPropertiesAndAutoConfigurationTest {
                 });
 
         new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(AslCoreAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(
+                        AslCoreAutoConfiguration.class,
+                        AslMapDbAutoConfiguration.class
+                ))
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withPropertyValues(
                         "asl.async.mapdb.enabled=true",
@@ -138,11 +151,15 @@ class AslPropertiesAndAutoConfigurationTest {
         Path corruptDbPath = testDataPath("ctx-queue-corrupt");
         writeCorruptStore(corruptDbPath);
         new ApplicationContextRunner()
-                .withConfiguration(AutoConfigurations.of(AslCoreAutoConfiguration.class))
+                .withConfiguration(AutoConfigurations.of(
+                        AslCoreAutoConfiguration.class,
+                        AslMapDbAutoConfiguration.class
+                ))
                 .withPropertyValues(
                         "asl.async.mapdb.enabled=true",
+                        "asl.async.mapdb.codec=java-object-stream",
                         "asl.async.mapdb.path=" + corruptDbPath.toString().replace("\\", "/"),
-                        "asl.async.mapdb.reset-if-corrupt=true"
+                        "asl.async.mapdb.corruption-policy=ARCHIVE_AND_RESET"
                 )
                 .run(context -> {
                     assertTrue(context.containsBean("mapDbAsyncExecutionEngine"));
@@ -173,7 +190,10 @@ class AslPropertiesAndAutoConfigurationTest {
                         return false;
                     }
                 })
-                .withPropertyValues("asl.admin.enabled=true")
+                .withPropertyValues(
+                        "asl.admin.enabled=true",
+                        "asl.admin.security.allow-unauthenticated=true"
+                )
                 .run(context -> {
                     assertTrue(context.containsBean("aslAdminFacade"));
                     assertTrue(context.containsBean("aslAdminRuntimeConfiguration"));
@@ -215,6 +235,7 @@ class AslPropertiesAndAutoConfigurationTest {
                 .withBean(BufferAdminProvider.class, () -> new NoOpAsyncEngine())
                 .withPropertyValues(
                         "asl.admin.enabled=true",
+                        "asl.admin.security.allow-unauthenticated=true",
                         "asl.admin.ui.hero-title=Reactor Admin Console",
                         "asl.admin.buffer-preview-limit=11",
                         "asl.admin.dashboard.attention-limit=5",

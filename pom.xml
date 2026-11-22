@@ -51,11 +51,18 @@
 
     <modules>
         <module>asl-annotations</module>
+        <module>asl-benchmarks</module>
         <module>asl-consumer-sample</module>
         <module>asl-core</module>
+        <module>asl-admin-protocol</module>
         <module>asl-coverage</module>
         <module>asl-mapdb</module>
         <module>asl-processor</module>
+        <module>asl-spring-boot-core-starter</module>
+        <module>asl-spring-boot-mapdb-starter</module>
+        <module>asl-spring-boot-admin-starter</module>
+        <module>asl-spring-boot-admin-client-starter</module>
+        <module>asl-admin-server</module>
         <module>asl-spring-boot-starter</module>
         <module>asl-sample</module>
     </modules>
@@ -67,6 +74,10 @@
         <mapdb.version>3.1.0</mapdb.version>
         <spring.boot.version>3.3.5</spring.boot.version>
         <jacoco.version>0.8.14</jacoco.version>
+        <micrometer.version>1.13.6</micrometer.version>
+        <jmh.version>1.37</jmh.version>
+        <cyclonedx.version>2.9.2</cyclonedx.version>
+        <jacoco.line.minimum>0.00</jacoco.line.minimum>
     </properties>
 
     <dependencyManagement>
@@ -83,6 +94,11 @@
                 <artifactId>junit-jupiter</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.micrometer</groupId>
+                <artifactId>micrometer-core</artifactId>
+                <version>${micrometer.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -128,6 +144,11 @@
                     <artifactId>maven-deploy-plugin</artifactId>
                     <version>3.1.2</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.cyclonedx</groupId>
+                    <artifactId>cyclonedx-maven-plugin</artifactId>
+                    <version>${cyclonedx.version}</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
@@ -147,6 +168,30 @@
                         <goals>
                             <goal>report</goal>
                         </goals>
+                    </execution>
+                    <execution>
+                        <!-- Per-module line coverage floor from the module's own tests.
+                             Modules raise jacoco.line.minimum; the aggregate report stays in asl-coverage. -->
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <haltOnFailure>true</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>${jacoco.line.minimum}</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -183,6 +228,35 @@
                                 <goals>
                                     <goal>jar</goal>
                                 </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>sbom</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.cyclonedx</groupId>
+                        <artifactId>cyclonedx-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>aggregate-sbom</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>makeAggregateBom</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${maven.multiModuleProjectDirectory}/target</outputDirectory>
+                                    <outputName>bom</outputName>
+                                    <outputFormat>all</outputFormat>
+                                    <outputReactorProjects>false</outputReactorProjects>
+                                    <includeTestScope>false</includeTestScope>
+                                    <skipAttach>true</skipAttach>
+                                    <skipNotDeployed>false</skipNotDeployed>
+                                </configuration>
                             </execution>
                         </executions>
                     </plugin>

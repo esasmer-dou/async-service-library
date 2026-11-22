@@ -1,130 +1,90 @@
 # Async Service Library Usage Guide
 
-## 1. Current Status
+**Language:** English | [Türkçe](tr/USAGE_GUIDE.md)
 
-ASL is currently usable for real integration work.
+This guide covers integration and runtime behavior. Every external property, default, and omission behavior is listed in the [configuration reference](CONFIGURATION_REFERENCE.md).
 
-What is ready:
+## 1. Requirements and Scope
 
-- Compile-time governed wrapper generation
-- Runtime enable/disable
-- Runtime concurrency control
-- Async queue dispatch for `void` methods
-- Persistent async queue with MapDB
-- Pluggable async payload codec SPI
-- Replay, delete, clear, consumer thread resize
-- Spring Boot admin UI and REST control plane
-- Spring auto-wrapping for governed beans without manual `wrap(...)`
+- Java 21 or newer.
+- Spring Boot 3.3.x for starter-based integration.
+- Maven 3.9.x for the documented build.
+- One concrete Spring stereotype implementation per governed interface.
+- Async runtime switching only for `void` methods marked `asyncCapable=true`.
 
-What is intentionally limited in the current version:
+ASL is an in-process governance library, not a distributed workflow engine. The MapDB backend is single-process and must not be shared by multiple pods.
 
-- Runtime `SYNC -> ASYNC` switching is supported only for `void` methods
-- Non-`void` methods can be governed, but they must stay synchronous
-- Spring auto-wrap currently expects a single Spring stereotype implementation per governed interface
-- The implementation bean still exists in the Spring context; the governed wrapper is exposed as the `@Primary` bean
-- There is no published Maven Central distribution yet in this repository state; use it as a workspace module or internal artifact first
+## 2. Select the Runtime Footprint
 
-## 2. Concept
+Use the smallest starter that satisfies the application:
 
-ASL is not a proxy-heavy AOP library.
+| Need | Add |
+|---|---|
+| Synchronous stop/throttle/metrics only | `asl-spring-boot-core-starter` |
+| Persistent async queue | `asl-spring-boot-mapdb-starter` |
+| Admin UI and REST | `asl-spring-boot-admin-starter` |
+| Existing all-in-one installation | `asl-spring-boot-starter` |
 
-The model is:
+`asl-spring-boot-mapdb-starter` already includes the core starter. The admin starter also includes core, but it does not automatically add MapDB. The compatibility starter includes all three.
 
-1. You annotate a service interface.
-2. An annotation processor generates a governed wrapper at compile time.
-3. Calls go through generated direct Java code.
-4. Runtime control happens through `GovernanceRegistry` and `MethodRuntime`.
-5. If Spring Boot starter is present, governed service beans are auto-wrapped inside the application context.
+## 3. Configure GitHub Packages
 
-This keeps the fast path simple:
-
-- no reflection dispatch
-- no dynamic proxy chain
-- no runtime annotation scanning on each call
-- no per-call policy parsing
-
-## 3. Modules
-
-- `asl-annotations`: public annotations
-- `asl-core`: runtime governance model
-- `asl-processor`: compile-time source generation
-- `asl-mapdb`: persistent async queue engine
-- `asl-spring-boot-starter`: Spring Boot auto-config, admin UI, admin REST
-- `asl-sample`: reference usage
-
-## Step-by-Step: Use ASL In Your Own Spring Boot Project
-
-If you want to add ASL to an existing Spring Boot service, follow this order.
-
-### 1. Add the dependencies
-
-Add the starter and annotations to your application module:
-
-```xml
-<dependencies>
-    <dependency>
-        <groupId>com.reactor.asl</groupId>
-        <artifactId>asl-spring-boot-starter</artifactId>
-        <version>0.1.0</version>
-    </dependency>
-    <dependency>
-        <groupId>com.reactor.asl</groupId>
-        <artifactId>asl-annotations</artifactId>
-        <version>0.1.0</version>
-    </dependency>
-</dependencies>
-```
-
-If you build against the modules from the same workspace, you can keep using `${project.version}` instead of a fixed version.
-
-### 1.1 Add the GitHub Packages repository
-
-If you consume ASL from GitHub Packages instead of the same workspace, add the repository to your consumer `pom.xml`:
+Add the repository to `pom.xml`:
 
 ```xml
 <repositories>
     <repository>
-        <id>github-asl</id>
+        <id>github</id>
         <url>https://maven.pkg.github.com/esasmer-dou/async-service-library</url>
-        <releases>
-            <enabled>true</enabled>
-        </releases>
-        <snapshots>
-            <enabled>true</enabled>
-        </snapshots>
     </repository>
 </repositories>
 ```
 
-### 1.2 Add GitHub credentials to `settings.xml`
-
-GitHub Packages requires Maven credentials. Add this to `~/.m2/settings.xml`:
+Create or update `~/.m2/settings.xml`:
 
 ```xml
-<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
     <servers>
         <server>
-            <id>github-asl</id>
-            <username>YOUR_GITHUB_USERNAME</username>
-            <password>YOUR_GITHUB_CLASSIC_PAT</password>
+            <id>github</id>
+            <username>${env.GITHUB_ACTOR}</username>
+            <password>${env.GITHUB_TOKEN}</password>
         </server>
     </servers>
 </settings>
 ```
 
-Notes:
+The token needs `read:packages`; private repository access also needs repository permission. Keep credentials in environment variables or CI secrets, never in `pom.xml` or source control.
 
-- the repository `id` in `pom.xml` and the server `id` in `settings.xml` must match
-- the token must be able to read packages; for private or restricted package access, use a GitHub personal access token with at least `read:packages`
-- if you consume `-SNAPSHOT` versions, keep snapshot resolution enabled in the repository definition
+## 4. Add Dependencies and the Processor
 
-### 2. Add the annotation processor
-
-ASL generates wrappers at compile time, so your compiler must run `asl-processor`.
+Example for core + MapDB + admin:
 
 ```xml
+<properties>
+    <asl.version>YOUR_RELEASE</asl.version>
+</properties>
+
+<dependencies>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-spring-boot-mapdb-starter</artifactId>
+        <version>${asl.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-spring-boot-admin-starter</artifactId>
+        <version>${asl.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>com.reactor.asl</groupId>
+        <artifactId>asl-annotations</artifactId>
+        <version>${asl.version}</version>
+    </dependency>
+</dependencies>
+
 <build>
     <plugins>
         <plugin>
@@ -135,7 +95,7 @@ ASL generates wrappers at compile time, so your compiler must run `asl-processor
                     <path>
                         <groupId>com.reactor.asl</groupId>
                         <artifactId>asl-processor</artifactId>
-                        <version>0.1.0</version>
+                        <version>${asl.version}</version>
                     </path>
                 </annotationProcessorPaths>
             </configuration>
@@ -144,91 +104,89 @@ ASL generates wrappers at compile time, so your compiler must run `asl-processor
 </build>
 ```
 
-### 3. Put `@GovernedService` on the interface
+The processor produces the descriptor, governed wrapper, and Spring wrapping configuration during compilation. No runtime classpath scanning is used for invocation dispatch.
 
-Annotate the service interface, not the implementation.
+The Spring wrapping configuration is generated only when the governed interface and its `@Service`/`@Component` implementation are compiled in the same module. If the interface lives in a separate API module, declare the wrapper bean yourself:
+
+```java
+@Bean
+@Primary
+MailService mailService(MailServiceImpl implementation, GovernanceRegistry registry) {
+    return MailServiceAsl.wrap(implementation, registry);
+}
+```
+
+At startup ASL checks for governed interfaces exposed without their wrapper and logs a warning (`asl.runtime.unwrapped-governed-bean-policy=WARN`). Use `FAIL` in production so a missing wrapper cannot silently bypass governance.
+
+## 5. Define and Implement a Service
 
 ```java
 @GovernedService(id = "mail.service")
 public interface MailService {
-    @GovernedMethod(initialMaxConcurrency = 4, unavailableMessage = "mail lane closed")
-    String send(String payload);
+    @GovernedMethod(initialMaxConcurrency = 6)
+    String send(String mailId);
 
-    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 0, initialMaxConcurrency = 2)
-    void publishAudit(String event);
+    @GovernedMethod(
+            asyncCapable = true,
+            initialMaxConcurrency = 4,
+            initialConsumerThreads = 2
+    )
+    void publishAudit(@AsyncIdempotencyKey String eventId, String mailId);
 
     @Excluded
-    String health();
+    String localHealth();
 }
 ```
-
-### 4. Implement the interface normally
-
-Your business code stays in the implementation.
 
 ```java
 @Service
 public class MailServiceImpl implements MailService {
     @Override
-    public String send(String payload) {
-        return "sent:" + payload;
+    public String send(String mailId) {
+        return "sent:" + mailId;
     }
 
     @Override
-    public void publishAudit(String event) {
-        // background-friendly work
+    public void publishAudit(String eventId, String mailId) {
+        // The side effect must be idempotent when retries are enabled.
     }
 
     @Override
-    public String health() {
+    public String localHealth() {
         return "UP";
     }
 }
 ```
 
-### 5. Inject the interface type in the rest of the app
+Inject `MailService`, not the implementation. The generated `@Primary` wrapper delegates to the implementation.
 
-Inject `MailService`, not the generated wrapper class.
+### Annotation rules
 
-```java
-@RestController
-@RequestMapping("/api/mails")
-public class MailController {
-    private final MailService mailService;
+- `@GovernedService.id` must be stable and unique.
+- `@GovernedMethod.id`, when omitted, is the full Java signature such as `send(java.lang.String)`.
+- `initialMaxConcurrency` must be positive; the annotation default is effectively unbounded.
+- `initialConsumerThreads` must be zero or positive.
+- `@AsyncIdempotencyKey` is optional, allowed once, and must annotate a `String` parameter of an async-capable method. A `null` or blank key means "no deduplication" in both SYNC and ASYNC mode.
+- Inherited interface methods, generic methods, generic interfaces and interfaces nested in a class are supported. A nested `Outer.Inner` generates `Outer_InnerAsl` and `Outer_InnerAslGoverned`. Annotations on inherited methods are honoured only when the super-interface is compiled in the same module (they have source retention). Local interfaces (declared inside a method) are not visible to annotation processors and are not governed.
+- Rejections throw `MethodUnavailableException` with `reason()` `DISABLED` or `CONCURRENCY_LIMIT` and without a stack trace, so throttling stays cheap under load.
+- `@Excluded` bypasses governance and calls the delegate directly.
+- The processor fails compilation when `asyncCapable=true` is used on a result-returning method.
 
-    public MailController(MailService mailService) {
-        this.mailService = mailService;
-    }
+## 6. Synchronous and Asynchronous Semantics
 
-    @PostMapping("/{id}/publish-audit")
-    public void publishAudit(@PathVariable String id) {
-        mailService.publishAudit(id);
-    }
-}
-```
+| Behavior | `SYNC` | `ASYNC` |
+|---|---|---|
+| Caller thread | Executes business code | Serializes and durably admits work |
+| Return value | Returned normally | Only supported for `void` |
+| Exception | Returned to caller | Stored as retry/failed state |
+| Concurrency | `maxConcurrency` limits active calls | Limits active consumers for the lane |
+| Durability | None added by ASL | MapDB commit completes before admission returns |
 
-At runtime, Spring injects the governed wrapper as the primary bean.
+An async call returning from the wrapper means the invocation was durably accepted, not that the business action completed. Queue overflow, payload limits, writer saturation, timeout, or storage failure are reported immediately as an admission exception.
 
-### 6. Turn on the admin plane
+Delivery is at-least-once. Graceful shutdown, a crash or an expired lease interrupts an execution; the invocation returns to the queue without consuming a retry attempt, up to `retry.max-interruptions` times. A crash between the external side effect and queue completion can therefore execute the same invocation again. Use a stable `@AsyncIdempotencyKey` and enforce idempotency in the target database or external API.
 
-Add the minimal ASL properties:
-
-```yaml
-asl:
-  admin:
-    enabled: true
-    path: /asl
-    api-path: /asl/api
-```
-
-This gives you:
-
-- admin UI at `/asl`
-- admin REST at `/asl/api`
-
-### 7. Turn on the async queue if you want runtime async lanes
-
-If you want `asyncCapable = true` methods to be switchable to `ASYNC`, enable MapDB:
+## 7. Enable MapDB Safely
 
 ```yaml
 asl:
@@ -239,986 +197,42 @@ asl:
       codec: jackson-json
       transactions-enabled: true
       memory-mapped-enabled: false
-      reset-if-corrupt: true
+      corruption-policy: FAIL_FAST
+      admission:
+        max-total-entries: 100000
+        max-total-payload-bytes: 536870912
+        default-lane-max-entries: 10000
+        default-lane-max-payload-bytes: 67108864
+        max-single-payload-bytes: 1048576
+        max-concurrent-enqueues: 64
+        overflow-policy: REJECT
+      retry:
+        max-attempts: 1
 ```
 
-Without an async engine, `ASYNC` mode is not usable.
+Production rules:
 
-### 8. Start the application and compile once
+- Keep `transactions-enabled=true` for durable workloads.
+- Keep `corruption-policy=FAIL_FAST` when preserving evidence and queue data is more important than automatic availability.
+- `ARCHIVE_AND_RESET` archives the complete damaged store set and starts an empty queue. It is an explicit data-loss/availability trade-off.
+- `BLOCK_WITH_TIMEOUT` requires a positive `enqueue-timeout-millis` and blocks caller threads; use it only with a bounded upstream request pool.
+- Set lane overrides for high-volume methods instead of allowing one lane to consume the global budget.
+- Put the queue on local durable storage or a pod-specific PVC. Do not use a shared RWX MapDB file.
 
-Run a normal build first so the generated wrappers are produced:
+Custom Jackson DTO packages must be allowlisted, or the method must use a registered `JacksonAsyncPayloadArgumentSchema`. Java object stream compatibility mode has allowlist and object-filter limits but is not the preferred long-lived schema format.
 
-```powershell
-mvn clean package
-```
+The MapDB starter reuses the host application's `ObjectMapper` when one exists. In a non-web application without an `ObjectMapper` bean, it creates a private module-aware `JsonMapper` for the ASL codec only; it does not publish that mapper into the application context.
 
-Then start the application:
+## 8. Enable the Admin Plane
 
-```powershell
-mvn spring-boot:run
-```
-
-### 9. Open the control plane
-
-After startup:
-
-- open `http://localhost:8080/asl`
-- verify your service appears in the Services list
-- open the method detail panel
-
-### 10. Use async mode the intended way
-
-For an async-capable `void` method:
-
-1. set execution mode to `ASYNC`
-2. keep `consumerThreads = 0` if you want to accumulate backlog first
-3. raise `consumerThreads` when you want the queue to drain
-4. inspect failed entries in the buffer if execution fails
-5. replay or delete failed entries from the admin UI or REST API
-
-### 11. Keep these rules in mind
-
-- only `void` methods are runtime-async-switchable
-- result-returning methods must stay synchronous
-- use `@Excluded` for health and always-open utility methods
-- define explicit service and method ids if operators or external systems will target them
-- protect `/asl` and `/asl/api` with your own security configuration in production
-
-## 4. Public Annotations
-
-### `@GovernedService`
-
-Put this on the service interface.
+Admin is disabled by default. When enabled, startup fails unless an access policy exists or anonymous demo access is explicitly requested.
 
 ```java
-@GovernedService(id = "payment.service")
-public interface PaymentService {
-    Receipt pay(PaymentRequest request);
-}
-```
-
-Rules:
-
-- Must be placed on an interface
-- Compile-time only
-- If `id` is omitted, the interface fully qualified name becomes the service id
-
-### `@GovernedMethod`
-
-Put this on interface methods that need explicit governance settings.
-
-Fields:
-
-- `id`: explicit method id
-- `initiallyEnabled`: initial availability
-- `initialMaxConcurrency`: initial concurrency ceiling
-- `unavailableMessage`: returned when method is unavailable
-- `asyncCapable`: enables queue-based async mode
-- `initialConsumerThreads`: initial worker count for async queue consumption
-
-Example:
-
-```java
-@GovernedMethod(
-    initialMaxConcurrency = 8,
-    unavailableMessage = "payment lane closed"
-)
-Receipt pay(PaymentRequest request);
-```
-
-Async example:
-
-```java
-@GovernedMethod(
-    asyncCapable = true,
-    initialMaxConcurrency = 2,
-    initialConsumerThreads = 0
-)
-void publish(OrderEvent event);
-```
-
-Important:
-
-- `asyncCapable = true` is currently valid only for `void` methods
-- Even for async-capable methods, execution starts in `SYNC` mode until you explicitly switch the method to `ASYNC`
-
-### `@Excluded`
-
-Methods marked with `@Excluded` bypass governance completely.
-
-```java
-@Excluded
-String health();
-```
-
-Use this for:
-
-- health checks
-- lightweight metadata endpoints
-- methods that must never be throttled or stopped by ASL
-
-## 5. Generated Artifacts
-
-For an interface like:
-
-```java
-@GovernedService
-public interface SampleService {
-    String echo(String value);
-}
-```
-
-ASL generates:
-
-- `SampleServiceAsl`
-- `SampleServiceAslGoverned`
-
-Typical generated entry point:
-
-```java
-SampleService wrapped = SampleServiceAsl.wrap(delegate, registry);
-```
-
-Generated wrapper responsibilities:
-
-- register service descriptor
-- register method runtimes
-- enforce enable/disable
-- enforce concurrency
-- route async-capable methods to queue when mode is `ASYNC`
-- track success/error/rejected counters
-
-## 6. Non-Spring Usage
-
-If you are not using Spring, wrap manually.
-
-```java
-GovernanceRegistry registry = new GovernanceRegistry();
-SampleService delegate = new SampleServiceImpl();
-SampleService service = SampleServiceAsl.wrap(delegate, registry);
-
-String value = service.echo("test");
-```
-
-### Runtime Control
-
-```java
-ServiceRuntime serviceRuntime = registry.service(SampleServiceAsl.SERVICE_ID);
-MethodRuntime echoRuntime = serviceRuntime.methodByName("echo");
-
-echoRuntime.disable("faucet closed");
-echoRuntime.enable();
-echoRuntime.setMaxConcurrency(4);
-```
-
-Method lookup options:
-
-- `methodByName("echo")`
-- `methodById("echo(java.lang.String)")`
-- `method(index)`
-
-Use `methodById(...)` when:
-
-- the interface has overloads
-- you are calling control APIs from external systems
-
-## 7. Spring Boot Usage
-
-### Required Dependencies
-
-If the modules are used from the same workspace:
-
-```xml
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-spring-boot-starter</artifactId>
-    <version>${project.version}</version>
-</dependency>
-
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-annotations</artifactId>
-    <version>${project.version}</version>
-</dependency>
-```
-
-You also need the annotation processor:
-
-```xml
-<plugin>
-    <groupId>org.apache.maven.plugins</groupId>
-    <artifactId>maven-compiler-plugin</artifactId>
-    <configuration>
-        <annotationProcessorPaths>
-            <path>
-                <groupId>com.reactor.asl</groupId>
-                <artifactId>asl-processor</artifactId>
-                <version>${project.version}</version>
-            </path>
-        </annotationProcessorPaths>
-    </configuration>
-</plugin>
-```
-
-### Service Definition
-
-```java
-@GovernedService(id = "order.service")
-public interface OrderService {
-    String create(String payload);
-
-    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 0, initialMaxConcurrency = 2)
-    void publish(String event);
-
-    @Excluded
-    String health();
-}
-```
-
-Implementation:
-
-```java
-@Service
-public class OrderServiceImpl implements OrderService {
-    @Override
-    public String create(String payload) {
-        return "created:" + payload;
-    }
-
-    @Override
-    public void publish(String event) {
-    }
-
-    @Override
-    public String health() {
-        return "UP";
-    }
-}
-```
-
-Injection:
-
-```java
-@RestController
-public class OrderController {
-    private final OrderService orderService;
-
-    public OrderController(OrderService orderService) {
-        this.orderService = orderService;
-    }
-}
-```
-
-Important Spring behavior:
-
-- You inject the interface type
-- The injected bean is the generated governed wrapper
-- The original implementation bean remains in the context
-- The wrapper is exposed as `@Primary`
-
-### Auto-wrap Constraint
-
-Currently supported cleanly:
-
-- one Spring stereotype implementation per governed interface
-
-If you create multiple implementations of the same governed interface with Spring stereotypes, the processor fails the compilation intentionally.
-
-## 8. Async Queue Usage
-
-### Enable MapDB Queue
-
-```yaml
-asl:
-  async:
-    mapdb:
-      enabled: true
-      path: ./data/asl-queue.db
-      worker-shutdown-await-millis: 10000
-```
-
-What happens when this is enabled:
-
-- starter creates `GovernanceRegistry`
-- starter creates `MapDbAsyncExecutionEngine`
-- registry attaches the engine
-- async-capable generated wrappers can enqueue invocations when switched to `ASYNC`
-
-### Async Execution Semantics
-
-For a method like:
-
-```java
-@GovernedMethod(asyncCapable = true, initialConsumerThreads = 0, initialMaxConcurrency = 2)
-void publish(String value);
-```
-
-Runtime behavior:
-
-- `SYNC` mode: direct invocation
-- `ASYNC` mode: request is written to MapDB and later consumed by workers
-
-Important:
-
-- `initialConsumerThreads = 0` means the queue can accept requests but no worker consumes them yet
-- you can later raise the worker count to start draining the queue
-- `initialMaxConcurrency` still applies to active async execution
-
-### What You Must Not Do
-
-Do not treat a synchronous result-bearing method as async-switchable.
-
-Good:
-
-```java
-void publish(Event event);
-```
-
-Not supported for runtime async switching:
-
-```java
-Receipt createOrder(OrderRequest request);
-```
-
-Reason:
-
-- queueing a result-bearing method changes the method contract
-- the caller expects a direct return value
-
-## 9. Admin UI and REST
-
-### UI
-
-Default path:
-
-- `/asl`
-
-Features:
-
-- view services and methods
-- enable / disable methods
-- update max concurrency
-- switch `SYNC` / `ASYNC`
-- change consumer thread count
-- inspect queue buffer preview
-- inspect queue entry codec, payload type, payload version, and failure category
-- replay failed entries
-- delete entries
-- clear queue buffer
-
-### REST
-
-Default base path:
-
-- `/asl/api`
-
-#### Service list
-
-```http
-GET /asl/api/services
-```
-
-#### Service detail
-
-```http
-GET /asl/api/services/{serviceId}
-```
-
-#### Enable method
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/enable
-```
-
-#### Disable method
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/disable?message=faucet-closed
-```
-
-#### Change concurrency
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/concurrency
-Content-Type: application/json
-
-{
-  "maxConcurrency": 4
-}
-```
-
-#### Change mode
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/mode
-Content-Type: application/json
-
-{
-  "executionMode": "ASYNC"
-}
-```
-
-#### Change consumer threads
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/consumer-threads
-Content-Type: application/json
-
-{
-  "consumerThreads": 5
-}
-```
-
-#### Buffer preview
-
-```http
-GET /asl/api/services/{serviceId}/methods/{methodId}/buffer
-```
-
-#### Clear buffer
-
-```http
-DELETE /asl/api/services/{serviceId}/methods/{methodId}/buffer
-```
-
-#### Delete one entry
-
-```http
-DELETE /asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}
-```
-
-#### Replay failed entry
-
-```http
-POST /asl/api/services/{serviceId}/methods/{methodId}/buffer/{entryId}/replay
-```
-
-## 10. Configuration
-
-### Configuration Precedence
-
-When more than one source exists, ASL resolves startup behavior in this order:
-
-1. `application.yml` / `application.properties`
-2. annotation values on the governed interface
-3. library defaults
-
-That means:
-
-- you do **not** need `asl.admin.services.*` just to see services in the UI
-- you do **not** need per-method property overrides if the annotation values are already correct
-- if a property is omitted, ASL falls back to the default listed below
-
-### What Happens If You Configure Nothing
-
-If you only add the dependencies, annotation processor, and governed annotations:
-
-- governed wrappers are still generated
-- services and methods still appear in the admin UI
-- admin UI is enabled by default at `/asl`
-- admin REST is enabled by default at `/asl/api`
-- method startup values come from `@GovernedMethod`
-- if a `@GovernedMethod` field is also omitted, the library default is used
-- MapDB async execution is **not** enabled unless `asl.async.mapdb.enabled=true`
-
-### `asl.runtime.*`
-
-These are shared runtime fallbacks used when a method does not provide a more specific value.
-
-| Property | Used for | Default | If omitted |
-| --- | --- | --- | --- |
-| `asl.runtime.default-unavailable-message` | Shared fallback message returned when a governed method is disabled and no method-specific message exists | `Method is disabled` | Disabled methods fall back to this message when no method-specific message is present |
-| `asl.runtime.max-concurrency-exceeded-message-template` | Shared rejection message template used when a call is rejected because max concurrency is full | `Method reached max concurrency: %d` | Rejected calls caused by concurrency saturation use this template |
-
-### Admin Properties
-
-```yaml
-asl:
-  runtime:
-    default-unavailable-message: Method is disabled
-    max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
-  admin:
-    enabled: true
-    path: /asl
-    api-path: /asl/api
-    buffer-preview-limit: 50
-    dashboard:
-      attention-limit: 8
-      medium-utilization-percent: 40
-      high-utilization-percent: 80
-      refresh:
-        live-refresh-enabled: true
-        live-buffer-enabled: true
-        default-interval-ms: 5000
-        interval-options-ms: [3000, 5000, 10000, 30000]
-        change-flash-ms: 1400
-        success-message-auto-hide-ms: 1600
-        error-message-auto-hide-ms: 3200
-```
-
-Core admin properties:
-
-| Property | Used for | Default | If omitted |
-| --- | --- | --- | --- |
-| `asl.admin.enabled` | Turns the admin UI and admin REST surface on or off | `true` | Admin UI and REST controllers are still registered |
-| `asl.admin.path` | Sets the browser path of the admin HTML dashboard | `/asl` | UI stays at `/asl` |
-| `asl.admin.api-path` | Sets the REST base path used by the admin UI and external operators | `/asl/api` | REST stays at `/asl/api` |
-| `asl.admin.buffer-preview-limit` | Limits how many queue buffer entries are returned in preview responses | `50` | Buffer preview shows up to 50 entries |
-
-Dashboard summary properties:
-
-| Property | Used for | Default | If omitted |
-| --- | --- | --- | --- |
-| `asl.admin.dashboard.attention-limit` | Caps how many attention items the summary model returns to the dashboard | `8` | Summary returns up to 8 attention items |
-| `asl.admin.dashboard.medium-utilization-percent` | Defines the utilization percentage where summary pressure becomes medium | `40` | Medium pressure threshold remains 40% |
-| `asl.admin.dashboard.high-utilization-percent` | Defines the utilization percentage where summary pressure becomes high | `80` | High pressure threshold remains 80% |
-
-Dashboard refresh properties:
-
-| Property | Used for | Default | If omitted |
-| --- | --- | --- | --- |
-| `asl.admin.dashboard.refresh.live-refresh-enabled` | Decides whether metric refresh starts enabled when the admin page opens | `true` | Live refresh starts enabled |
-| `asl.admin.dashboard.refresh.live-buffer-enabled` | Decides whether buffer refresh starts enabled when the admin page opens | `true` | Live buffer refresh starts enabled |
-| `asl.admin.dashboard.refresh.default-interval-ms` | Sets the initial auto-refresh interval shown and used by the UI timer | `5000` | Auto refresh interval starts at 5 seconds |
-| `asl.admin.dashboard.refresh.interval-options-ms` | Sets the selectable refresh interval values shown in the UI dropdown | `[3000, 5000, 10000, 30000]` | The UI keeps these four interval choices |
-| `asl.admin.dashboard.refresh.change-flash-ms` | Controls how long changed values are visually highlighted after refresh | `1400` | Change-highlight flash duration stays 1.4 seconds |
-| `asl.admin.dashboard.refresh.success-message-auto-hide-ms` | Controls how long success feedback stays visible in the admin page | `1600` | Success toasts auto-hide after 1.6 seconds |
-| `asl.admin.dashboard.refresh.error-message-auto-hide-ms` | Controls how long error feedback stays visible in the admin page | `3200` | Error toasts auto-hide after 3.2 seconds |
-
-### `asl.admin.ui.*`
-
-All admin page text is overrideable. If you omit a field, the built-in label remains in place.
-
-| Property | Used for | Default |
-| --- | --- | --- |
-| `asl.admin.ui.page-title` | Browser title and top-level page naming | `ASL Control Plane` |
-| `asl.admin.ui.hero-title` | Main hero title at the top of the admin page | `ASL Control Plane` |
-| `asl.admin.ui.hero-description` | Introductory description text under the hero title | `Review governed methods, stop or resume traffic, change concurrency and async settings, and inspect queue state from the same Spring Boot port.` |
-| `asl.admin.ui.rest-badge-prefix` | Prefix shown before the admin REST base path badge | `REST:` |
-| `asl.admin.ui.empty-title` | Empty-state title when no governed services are registered | `No governed services registered` |
-| `asl.admin.ui.empty-description` | Empty-state helper text when the registry is empty | `The admin UI is active, but the runtime registry is empty.` |
-| `asl.admin.ui.services-title` | Services section title | `Services` |
-| `asl.admin.ui.service-search-placeholder` | Placeholder text in the service search box | `Search services` |
-| `asl.admin.ui.service-tab-note` | Small note shown in service cards/tabs | `Open this service subform` |
-| `asl.admin.ui.service-detail-note` | Helper text shown when no method is selected yet | `Select a method from the left subform list to manage its full details.` |
-| `asl.admin.ui.methods-title` | Methods section title | `Methods` |
-| `asl.admin.ui.all-label` | Generic label for the unfiltered state | `All` |
-| `asl.admin.ui.no-parameters-label` | Label for methods that take no parameters | `No parameters` |
-| `asl.admin.ui.running-label` | Status label for running methods | `RUNNING` |
-| `asl.admin.ui.stopped-label` | Status label for stopped methods | `STOPPED` |
-| `asl.admin.ui.sync-mode-label` | Label for synchronous execution mode | `SYNC` |
-| `asl.admin.ui.async-label` | Label for async state, async mode, or async capability | `ASYNC` |
-| `asl.admin.ui.error-label` | Label for error-focused filters or states | `ERROR` |
-| `asl.admin.ui.success-label` | Label for successful executions/statistics | `Success` |
-| `asl.admin.ui.rejected-label` | Label for rejected calls/statistics | `Rejected` |
-| `asl.admin.ui.load-label` | Label for load or traffic indicators | `Load` |
-| `asl.admin.ui.peak-in-flight-label` | Label for peak concurrent in-flight work | `Peak In Flight` |
-| `asl.admin.ui.execution-mode-label` | Label above mode switching controls | `Execution Mode` |
-| `asl.admin.ui.consumer-threads-label` | Label above consumer thread controls | `Consumer Threads` |
-| `asl.admin.ui.last-error-label` | Label for the last recorded error field | `Last Error` |
-| `asl.admin.ui.none-label` | Fallback text when no value exists | `none` |
-| `asl.admin.ui.method-state-title` | Title of the method enable/disable card | `Method State` |
-| `asl.admin.ui.start-method-label` | Button label for enabling a method | `Start Method` |
-| `asl.admin.ui.stop-method-label` | Button label for disabling a method | `Stop Method` |
-| `asl.admin.ui.disable-placeholder` | Placeholder text for the disable reason input | `Reason shown to callers` |
-| `asl.admin.ui.method-state-hint` | Helper hint under the method state controls | `Stopping a method returns the configured message to incoming callers.` |
-| `asl.admin.ui.sync-concurrency-title` | Title of the sync concurrency card | `Sync Concurrency` |
-| `asl.admin.ui.update-limit-label` | Button label for applying a concurrency update | `Update Limit` |
-| `asl.admin.ui.sync-concurrency-hint` | Helper text explaining what max concurrency controls | `Defines how many concurrent executions are allowed for this method.` |
-| `asl.admin.ui.async-controls-title` | Title of the async controls card | `Async Controls` |
-| `asl.admin.ui.apply-mode-label` | Generic apply label used by mode change actions | `Apply` |
-| `asl.admin.ui.update-consumers-label` | Button label for updating consumer threads | `Update` |
-| `asl.admin.ui.async-hint` | Helper text explaining safe async usage | `Use async mode only for methods designed to be safely queued and consumed later.` |
-| `asl.admin.ui.queue-buffer-title` | Title of the queue buffer card | `Queue Buffer` |
-| `asl.admin.ui.load-overview-title` | Title of the load overview card | `Load Overview` |
-| `asl.admin.ui.no-buffer-message` | Message shown when a method has no attached buffer provider | `No buffer provider is currently attached to this method.` |
-| `asl.admin.ui.clear-buffer-label` | Button label for clearing the buffer | `Clear Buffer` |
-| `asl.admin.ui.replay-entry-label` | Button label for replaying a failed entry | `Replay Entry` |
-| `asl.admin.ui.delete-entry-label` | Button label for deleting a buffered entry | `Delete Entry` |
-| `asl.admin.ui.processed-label` | Label for processed count/statistics | `Processed` |
-| `asl.admin.ui.active-work-label` | Label for currently active work count | `Active Work` |
-| `asl.admin.ui.queue-depth-label` | Label for queued item count | `Queue Depth` |
-| `asl.admin.ui.utilization-label` | Label for utilization percentage | `Utilization` |
-| `asl.admin.ui.work-pressure-label` | Label for pressure summary | `Work Pressure` |
-| `asl.admin.ui.worker-capacity-label` | Label for effective worker capacity | `Worker Capacity` |
-| `asl.admin.ui.live-refresh-label` | Label next to the live refresh toggle | `Live Refresh` |
-| `asl.admin.ui.refresh-now-label` | Button label for immediate manual refresh | `Refresh Now` |
-| `asl.admin.ui.refresh-interval-label` | Label for the refresh interval selector | `Refresh Interval` |
-| `asl.admin.ui.refresh-buffer-label` | Label for buffer refresh actions | `Refresh Buffer` |
-| `asl.admin.ui.live-buffer-label` | Label next to the live buffer toggle | `Live Buffer` |
-| `asl.admin.ui.scroll-top-label` | Button label for scrolling a panel to the top | `Top` |
-| `asl.admin.ui.scroll-bottom-label` | Button label for scrolling a panel to the bottom | `Bottom` |
-| `asl.admin.ui.ready-status-label` | Default ready-state label in status feedback | `Ready` |
-| `asl.admin.ui.applying-change-message` | Status message shown while a change request is in flight | `Applying change...` |
-| `asl.admin.ui.change-applied-message` | Status message shown after a successful change | `Change applied` |
-| `asl.admin.ui.request-failed-message` | Status message shown after a failed request | `Request failed` |
-| `asl.admin.ui.refreshing-metrics-message` | Status message shown while metrics refresh is running | `Refreshing live metrics...` |
-| `asl.admin.ui.metrics-refreshed-message` | Status message shown after metrics refresh completes | `Metrics refreshed` |
-| `asl.admin.ui.refreshing-buffer-message` | Status message shown while buffer refresh is running | `Refreshing buffer...` |
-| `asl.admin.ui.buffer-refreshed-message` | Status message shown after buffer refresh completes | `Buffer refreshed` |
-| `asl.admin.ui.entry-id-label` | Label for queue buffer entry ids | `Entry Id` |
-| `asl.admin.ui.attempts-label` | Label for execution attempt count | `Attempts` |
-| `asl.admin.ui.codec-label` | Label for payload codec information | `Codec` |
-| `asl.admin.ui.payload-type-label` | Label for stored payload type metadata | `Payload Type` |
-| `asl.admin.ui.payload-version-label` | Label for stored payload schema version | `Payload Version` |
-| `asl.admin.ui.error-type-label` | Label for the technical error type field | `Error Type` |
-| `asl.admin.ui.error-category-label` | Label for the normalized error category field | `Error Category` |
-| `asl.admin.ui.methods-count-suffix` | Suffix used in service cards for method count | `methods` |
-| `asl.admin.ui.async-capable-suffix` | Suffix used in service cards for async-capable count | `async-capable` |
-| `asl.admin.ui.stopped-suffix` | Suffix used in service cards for stopped count | `stopped` |
-| `asl.admin.ui.methods-with-errors-suffix` | Suffix used in service cards for methods with errors | `with errors` |
-| `asl.admin.ui.pending-label` | Label for pending queue count | `Pending` |
-| `asl.admin.ui.failed-label` | Label for failed queue count | `Failed` |
-| `asl.admin.ui.in-progress-label` | Label for in-progress queue count | `In progress` |
-
-### `asl.admin.services.*`
-
-This block is optional. It exists to override startup runtime values from configuration.
-
-Example:
-
-```yaml
-asl:
-  admin:
-    services:
-      "mail.service":
-        methods:
-          "send(java.lang.String)":
-            max-concurrency: 6
-          "publishAudit(java.lang.String)":
-            execution-mode: ASYNC
-            consumer-threads: 2
-```
-
-If you omit this entire block:
-
-- services and methods still appear in the UI
-- annotation-defined startup values are used
-- if the annotation also omits a setting, the library default is used
-
-Supported per-method overrides:
-
-| Property | Used for | If omitted |
-| --- | --- | --- |
-| `asl.admin.services.<serviceId>.methods.<methodId>.enabled` | Sets whether the method starts enabled or disabled at application startup | Uses `@GovernedMethod(initiallyEnabled)`; default `true` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.max-concurrency` | Sets the startup max concurrency for a specific method | Uses `@GovernedMethod(initialMaxConcurrency)`; default `Integer.MAX_VALUE` |
-| `asl.admin.services.<serviceId>.methods.<methodId>.unavailable-message` | Sets the startup unavailable message returned when that method is disabled | Uses `@GovernedMethod(unavailableMessage)`; if blank, falls back to `asl.runtime.default-unavailable-message` when disabled |
-| `asl.admin.services.<serviceId>.methods.<methodId>.execution-mode` | Sets the startup execution mode for a specific method | Starts in `SYNC` unless explicitly overridden or changed at runtime |
-| `asl.admin.services.<serviceId>.methods.<methodId>.consumer-threads` | Sets the startup consumer thread count for an async-capable method | Uses `@GovernedMethod(initialConsumerThreads)`; default `1` |
-
-### MapDB Async Properties
-
-```yaml
-asl:
-  async:
-    mapdb:
-      enabled: true
-      path: ./data/asl-queue.db
-      codec: jackson-json
-      worker-shutdown-await-millis: 10000
-      registration-idle-sleep-millis: 100
-      empty-queue-sleep-millis: 50
-      requeue-delay-millis: 75
-      recovered-in-progress-message: Recovered stale in-progress invocation after restart
-      transactions-enabled: true
-      memory-mapped-enabled: false
-      reset-if-corrupt: true
-```
-
-| Property | Used for | Default | If omitted |
-| --- | --- | --- | --- |
-| `asl.async.mapdb.enabled` | Turns the embedded MapDB async execution engine on or off | `false` | No MapDB async engine is created |
-| `asl.async.mapdb.path` | Sets the persistence file path for the queue store | `./data/asl-queue.db` | Queue file stays under `./data/asl-queue.db` when enabled |
-| `asl.async.mapdb.codec` | Chooses the payload serialization codec used for queued items | `java-object-stream` | Java object stream codec is used |
-| `asl.async.mapdb.worker-shutdown-await-millis` | Controls how long shutdown waits for async workers to finish | `10000` | Worker shutdown waits up to 10 seconds |
-| `asl.async.mapdb.registration-idle-sleep-millis` | Worker backoff time when a lane is not registered yet | `100` | Workers back off 100 ms when a lane is not yet registered |
-| `asl.async.mapdb.empty-queue-sleep-millis` | Worker backoff time when the queue is currently empty | `50` | Workers back off 50 ms when the queue is empty |
-| `asl.async.mapdb.requeue-delay-millis` | Worker backoff time after a requeue caused by full concurrency | `75` | Workers back off 75 ms after requeue due to full concurrency |
-| `asl.async.mapdb.recovered-in-progress-message` | Message recorded when stale in-progress work is recovered after restart | `Recovered stale in-progress invocation after restart` | This message is written when stale in-progress work is recovered |
-| `asl.async.mapdb.transactions-enabled` | Enables transactional MapDB writes for durability | `true` | Transactional writes remain enabled |
-| `asl.async.mapdb.memory-mapped-enabled` | Enables memory-mapped file access for the MapDB store | `false` | Memory-mapped IO stays off |
-| `asl.async.mapdb.reset-if-corrupt` | Allows startup recovery/reset instead of failing hard on recoverable store corruption | `false` | Recoverable store corruption fails startup instead of resetting/falling back |
-
-### Payload Codec
-
-The async engine now persists encoded payload bytes instead of storing raw arguments through MapDB serializer wiring.
-
-Default:
-
-- `JavaObjectStreamAsyncPayloadCodec`
-
-Built-in Spring option:
-
-- `JacksonJsonAsyncPayloadCodec`
-
-Operational guidance:
-
-- For durable queues, prefer the Jackson codec plus method-specific schema registration.
-- For schema or codec changes, roll them out in a staged manner and validate replay/restart compatibility before production rollout.
-
-Spring Boot behavior:
-
-- if no `AsyncPayloadCodec` bean exists, starter registers the default codec
-- if you provide your own `AsyncPayloadCodec` bean, MapDB uses it
-- if `asl.async.mapdb.codec=jackson-json` and `ObjectMapper` is present, starter wires the Jackson codec automatically
-
-Typical custom codec use cases:
-
-- avoiding Java serialization constraints
-- versioned business payload formats
-- schema-controlled queue compatibility across deployments
-- compact binary or JSON payload storage
-
-### Jackson Schema Registry And Migration Hooks
-
-If you use the built-in Jackson codec, you can register payload schemas with a stable logical type identity.
-
-This is useful when:
-
-- payload classes evolve across deployments
-- you want stable logical type ids instead of raw class names
-- old queued payloads must be migrated to the current shape before execution
-- method signatures may change across deployments
-
-Core starter types:
-
-- `JacksonAsyncPayloadSchemaRegistry`
-- `JacksonAsyncPayloadArgumentSchema`
-- `AbstractJacksonAsyncPayloadArgumentSchema`
-- `MapBackedJacksonAsyncPayloadSchemaRegistry`
-
-Example:
-
-```java
-@Bean
-JacksonAsyncPayloadSchemaRegistry jacksonAsyncPayloadSchemaRegistry() {
-    MailEventSchema mailEventSchema = new MailEventSchema();
-    return MapBackedJacksonAsyncPayloadSchemaRegistry.builder()
-            .registerType(mailEventSchema)
-            .bind("mail.service", "publish(com.acme.MailEvent)", 0, "mail-event")
-            .build();
-}
-```
-
-```java
-public final class MailEventSchema extends AbstractJacksonAsyncPayloadArgumentSchema<MailEvent> {
-    public MailEventSchema() {
-        super("mail-event", MailEvent.class, 2);
-    }
-
-    @Override
-    public JsonNode migrate(ObjectMapper objectMapper, int fromVersion, JsonNode payload) {
-        if (fromVersion == 1 && payload instanceof ObjectNode objectNode) {
-            JsonNode oldField = objectNode.remove("text");
-            objectNode.set("message", oldField);
-            return objectNode;
-        }
-        return super.migrate(objectMapper, fromVersion, payload);
-    }
-}
-```
-
-Behavior:
-
-- newly queued payloads are stored with schema type id and schema version
-- encode uses the current method binding, but decode resolves by stable `schemaType` first
-- old queued payloads are migrated during decode before method invocation
-- if no schema is registered for a schema-encoded payload, decode fails loudly
-
-Compatibility note:
-
-- Jackson codec still supports legacy class-name based payloads already written by the previous `jackson-json-v1` envelope
-- new payloads written after this change use the versioned envelope with `codecVersion = 2`
-- keeping `typeId()` stable makes queued payloads less dependent on the current method signature
-
-Minimal Spring example:
-
-```java
-@Bean
-AsyncPayloadCodec asyncPayloadCodec() {
-    return new MyPayloadCodec();
-}
-```
-
-Built-in Jackson activation:
-
-```yaml
-asl:
-  async:
-    mapdb:
-      enabled: true
-      codec: jackson-json
-      path: ./data/asl-queue.db
-```
-
-## 11. Runtime API Details
-
-Core types you will interact with:
-
-- `GovernanceRegistry`
-- `ServiceRuntime`
-- `MethodRuntime`
-- `MethodRuntimeSnapshot`
-- `MethodStatsSnapshot`
-- `MethodBufferSnapshot`
-- `MethodUnavailableException`
-
-Typical runtime flow:
-
-```java
-ServiceRuntime serviceRuntime = registry.service("order.service");
-MethodRuntime methodRuntime = serviceRuntime.methodById("publish(java.lang.String)");
-
-methodRuntime.disable("temporarily stopped");
-methodRuntime.enable();
-methodRuntime.setMaxConcurrency(8);
-methodRuntime.switchMode(ExecutionMode.ASYNC);
-methodRuntime.setConsumerThreads(3);
-```
-
-Snapshot example:
-
-```java
-MethodRuntimeSnapshot snapshot = methodRuntime.snapshot();
-```
-
-Snapshot gives you:
-
-- enabled flag
-- max concurrency
-- async capability
-- execution mode
-- consumer thread count
-- unavailable message
-- success count
-- error count
-- rejected count
-- in-flight
-- peak in-flight
-- last error
-
-## 12. Method IDs
-
-If you do not supply `@GovernedMethod(id = "...")`, the generated id format is:
-
-```text
-methodName(java.lang.String,int,...)
-```
-
-Examples:
-
-- `echo(java.lang.String)`
-- `slow(java.lang.String)`
-- `publish(java.lang.String)`
-
-If there are overloads, do not rely on method name alone in external control systems.
-
-Use the exact method id.
-
-## 13. Error Behavior
-
-### Method disabled
-
-Callers receive `MethodUnavailableException`.
-
-Typical reasons:
-
-- explicitly disabled
-- max concurrency reached
-
-### Async engine missing
-
-If a method is switched to `ASYNC` and no async engine is attached, ASL raises an async execution error instead of silently degrading.
-
-### Failed queued item
-
-When async execution fails:
-
-- method error stats increase
-- the queue item moves to failed state
-- the item can be inspected, deleted, or replayed later
-
-## 14. Recommended Usage Patterns
-
-Use governance for:
-
-- expensive external calls
-- high-contention service methods
-- operationally sensitive pipelines
-- bursty event publication
-
-Do not govern everything blindly.
-
-Good candidates:
-
-- payment authorization
-- notification publish
-- settlement dispatch
-- batch write endpoints
-
-Usually exclude:
-
-- health
-- metadata lookup
-- static config reads
-
-## 15. Operational Notes
-
-- If a method should queue but not consume yet, start with `initialConsumerThreads = 0`
-- If a method must not accept traffic, disable it instead of setting concurrency to zero; zero is invalid
-- If you want deterministic operator control, define explicit `serviceId` and `methodId`
-- If URLs are built externally, remember that `methodId` contains parentheses and commas; encode path segments correctly
-- If you need async mode, always enable MapDB or another async engine before switching methods to `ASYNC`
-
-## 16. Readiness Verdict
-
-Yes, the repository is currently usable.
-
-Practical readiness level:
-
-- ready for internal integration
-- ready for controlled service rollout
-- ready for admin-driven operational throttling
-- ready for persistent async queue use on `void` methods
-
-Still not the final shape if you want broader semantics:
-
-- no async switching for non-`void` methods
-- no multi-implementation Spring strategy yet
-- no external auth/security layer on admin endpoints in this repo by default
-- default codec is still Java object stream unless you override it with a custom codec
-
-## 17. Minimal End-to-End Example
-
-```java
-@GovernedService(id = "mail.service")
-public interface MailService {
-    @GovernedMethod(initialMaxConcurrency = 4, unavailableMessage = "mail lane closed")
-    String send(String payload);
-
-    @GovernedMethod(asyncCapable = true, initialMaxConcurrency = 2, initialConsumerThreads = 0)
-    void publish(String event);
-
-    @Excluded
-    String health();
-}
-```
-
-```java
-@Service
-public class MailServiceImpl implements MailService {
-    @Override
-    public String send(String payload) {
-        return "sent:" + payload;
-    }
-
-    @Override
-    public void publish(String event) {
-    }
-
-    @Override
-    public String health() {
-        return "UP";
+@Configuration
+class AslAdminSecurityConfiguration {
+    @Bean
+    AslAdminAccessPolicy aslAdminAccessPolicy() {
+        return request -> !"anonymous".equals(request.principalName());
     }
 }
 ```
@@ -1229,27 +243,191 @@ asl:
     enabled: true
     path: /asl
     api-path: /asl/api
-  async:
-    mapdb:
-      enabled: true
-      path: ./data/asl-queue.db
+    security:
+      allow-unauthenticated: false
+      audit-reads: false
 ```
 
-Runtime:
+Keep the host application’s Spring Security authorization on `/asl/**` as the primary identity and role layer. `AslAdminAccessPolicy` is the ASL fail-closed gate and can add principal/path/action checks. Every mutation and every denied request is audited through `AslAdminAuditSink`; reads are also audited when `audit-reads=true`.
 
-1. App starts
-2. Spring injects governed `MailService`
-3. Operator opens `/asl`
-4. `send(...)` can be stopped or throttled
-5. `publish(...)` can be switched to `ASYNC`
-6. Consumer threads can be raised from `0` to `N`
-7. Failed async entries can be replayed or deleted
+The policy is enforced twice: a servlet filter that matches the canonical path (decoded, without `;` path parameters, repeated slashes collapsed) and an MVC interceptor bound to the admin controllers themselves. Alternative URL spellings such as `/asl;x=1/api/...` or `/%61sl/api/...` are therefore authorized like the canonical path. The `AccessRequest.path()` and audit `path()` always contain the canonical path.
 
-## 18. Reference Files
+Keep the host application's CSRF protection enabled when browser sessions or cookies can authorize admin mutations. ASL does not replace the host security chain or select an authentication scheme. Anonymous denials return `401`; authenticated principals rejected by the policy receive `403`. Matching remains correct when the application runs under a servlet context path.
 
-- Sample interface: [SampleService.java](/E:/ReactorRepository/async-service-library/asl-sample/src/main/java/com/reactor/asl/sample/SampleService.java)
-- Sample manual wrapping test: [GeneratedWrapperTest.java](/E:/ReactorRepository/async-service-library/asl-sample/src/test/java/com/reactor/asl/sample/GeneratedWrapperTest.java)
-- Spring auto-wrap test: [AutoWrapIntegrationTest.java](/E:/ReactorRepository/async-service-library/asl-spring-boot-starter/src/test/java/com/reactor/asl/spring/boot/autowrap/AutoWrapIntegrationTest.java)
-- Admin REST controller: [AslAdminRestController.java](/E:/ReactorRepository/async-service-library/asl-spring-boot-starter/src/main/java/com/reactor/asl/spring/boot/AslAdminRestController.java)
-- Admin UI controller: [AslAdminPageController.java](/E:/ReactorRepository/async-service-library/asl-spring-boot-starter/src/main/java/com/reactor/asl/spring/boot/AslAdminPageController.java)
-- Core auto-config: [AslCoreAutoConfiguration.java](/E:/ReactorRepository/async-service-library/asl-spring-boot-starter/src/main/java/com/reactor/asl/spring/boot/AslCoreAutoConfiguration.java)
+For an isolated local sample only:
+
+```yaml
+asl.admin.security.allow-unauthenticated: true
+```
+
+Do not use that setting on an externally reachable environment.
+
+## Central Admin Server for Multiple Replicas
+
+The admin starter puts a UI inside each application, which means one portal per pod. With several replicas or several applications, use the central admin server instead. It works like a config server: it serves the web portal and relays settings and commands, and holds no business logic.
+
+| Part | Where | Contains |
+|---|---|---|
+| `asl-admin-server` | One small separate process (`java -jar asl-admin-server-<version>-exec.jar`) | JDK built-in HTTP server and the portal page; in memory the connected replicas, their latest raw values and open commands; in one MapDB file the telemetry history, application-wide overrides and the audit trail. No web framework |
+| `asl-spring-boot-admin-client-starter` | Every application | One daemon thread. No UI, no inbound endpoint, no extra dependency (JDK `HttpClient`) |
+
+**How it talks.** Only the pod opens connections: `POST /asl/v1/register` once at startup, then `POST /asl/v1/beat` every interval. The body is a compact binary message (protocol module `asl-admin-protocol`, `java.base` only) signed with HMAC-SHA256 (`X-ASL-Auth` header, ±60 s clock window). The beat carries only the methods whose values changed; an idle beat is 10–15 bytes and the server answers `204` without a body. Settings and commands travel back in the reply. While someone has the application open in the portal, the server asks its replicas for a faster interval (2 s by default); when the portal is closed it returns to the normal interval (15 s).
+
+**Who does what.** The server stores and relays; it does not compute. Every `history.resolution` step it writes the latest raw counters of each replica and method into a fixed ring in MapDB. The pod applies application-wide overrides and then replica-specific ones on top. The browser computes totals, rates, "replicas differ" markers and the trend lines from the stored points. Long-term metrics and alerts stay in Prometheus/Grafana.
+
+**No payload leaves the pod.** The admin server stores telemetry counters only. Queue entries, their arguments and payloads stay in the replica's own MapDB queue; browse results are shown in the portal and never written to the server's store.
+
+**Failure behavior.** If the server is unreachable the client backs off (up to 60 s), drops telemetry instead of buffering it, and the application keeps its last applied settings. Governed calls never wait on the admin connection.
+
+**Settings model.** The server keeps only overrides that differ from the application's own `application.yml`: application-wide (persisted) or per replica (memory only, removed with the replica). A new replica receives the current overrides when it registers. Removing an override returns the method to its yml value. Limits stay per replica: `max-concurrency: 20` on three replicas allows 60 concurrent calls in total.
+
+**Queue operations.** Each replica owns its MapDB queue, so clear / replay / delete / browse target one replica. Browsing sends entry summaries and error texts to the server, so it is off unless the replica sets `asl.admin.client.queue-browse=true`.
+
+Application side:
+
+```yaml
+asl:
+  admin:
+    client:
+      enabled: true
+      server-url: http://asl-admin-server:8080
+      secret: ${ASL_ADMIN_SECRET}
+```
+
+Server side, with environment variables only:
+
+```bash
+ASL_ADMIN_SECRET=... ASL_ADMIN_USER=admin ASL_ADMIN_PASSWORD=... \
+./asl-admin-server.sh          # or: java @asl-admin-server.jvmopts -jar asl-admin-server-<version>-exec.jar
+```
+
+`asl-admin-server.sh`, `asl-admin-server.cmd` and `asl-admin-server.jvmopts` are in `asl-admin-server/src/main/dist`; keep them next to the jar. The options file holds the low-footprint JVM settings (`-Xmx16m -Xms4m`, Serial GC, C1-only JIT with a 12 MB code cache, 256 KB thread stacks, no perf data file) and the script also sets `MALLOC_ARENA_MAX=2`. Raise `-Xmx` to `32m` above roughly 2,000 history series.
+
+or with an `asl-admin.properties` file (`--config=<path>` to use another location):
+
+```properties
+asl.admin.server.port=8080
+asl.admin.server.storage.mode=FILE
+asl.admin.server.storage.path=/data/asl-admin.db
+asl.admin.server.storage.max-size=64MB
+asl.admin.server.history.resolution=1m
+asl.admin.server.history.retention=1h
+asl.admin.server.history.max-series=2000
+asl.admin.server.audit.max-entries=1000
+asl.admin.server.audit.retention=7d
+asl.admin.server.security.mode=BASIC
+```
+
+History is a fixed ring per replica and method (`retention / resolution` points, overwritten in place), so the file reaches a stable size and stays there. Plan roughly 150 bytes per point: 1,000 series × 60 points is about 9 MB; MapDB's smallest file is 2 MB. When `storage.max-size` is reached no new series are created and existing ones keep rotating. Changing `resolution` or `retention` starts the history afresh. Measured on the reference build with those options (Linux, JDK 21):
+
+| Scenario | RSS | CPU |
+|---|---:|---:|
+| Idle, ready in about 0.6 s | ~59 MB | ~0 |
+| Stress: 40 replicas × 50 methods, 1 s heartbeats, 2,000 history series written every 5 s, portal open | ~70 MB | ~10 % of one core |
+| Same stress with plain `java -Xmx32m -jar` | ~101 MB | ~17 % of one core |
+
+At the default 15 s heartbeat and 1 min history step the load is about fifteen times lower. The live heap stays around 6–7 MB in the stress case; the rest is the JVM itself (code, class metadata, shared class archive). The executable jar is about 17 MB, mostly MapDB and its libraries.
+
+In Kubernetes run the server as a single-replica Deployment with a small ReadWriteOnce volume (or `storage.mode=MEMORY`, which keeps the same data on the heap, and no volume), expose the portal through your ingress with TLS, and keep `/asl/v1/*` reachable only from inside the cluster. Do not enable `asl.admin.enabled` (the in-application portal) on replicas that are managed centrally.
+
+## 9. Admin REST and AJAX Projection
+
+The UI loads once and updates the active view with `fetch`; it does not reload the whole page. Scroll position and selected method remain stable.
+
+Important endpoints under the configured API path:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /projection?page=0&size=50` | Paginated dashboard read model with ETag |
+| `GET /summary` | Compact operational summary |
+| `GET /services` | Runtime service snapshots |
+| `POST /services/{service}/methods/{method}/configuration` | Atomic method configuration patch |
+| `GET /services/{service}/methods/{method}/buffer` | Bounded queue preview |
+| `DELETE .../buffer/{entry}` | Delete one non-active entry |
+| `POST .../buffer/{entry}/replay` | Replay one failed entry |
+| `DELETE .../buffer` | Clear non-active entries in a lane |
+
+Projection requests reject negative pages and page sizes above `asl.admin.dashboard.max-page-size`. Clients should send `If-None-Match`; unchanged state returns `304 Not Modified`. The built-in client uses `AbortController` with the configured fetch timeout.
+
+## 10. Configuration Precedence
+
+1. Runtime admin changes, while the process is alive.
+2. `asl.admin.services.<service>.methods.<signature>.*` startup overrides (admin starter).
+3. `asl.runtime.services.<service>.methods.<signature>.*` startup overrides (core starter, works without admin).
+4. Annotation values.
+5. Library defaults.
+
+MapDB capacity, codec, writer, worker, retry, payload, and corruption settings are startup settings. Changing YAML requires restart. Admin mutations are process-local and are not distributed to other replicas.
+
+If the application defines no `asl.*` properties:
+
+- Generated wrappers still enforce annotation defaults.
+- Admin and MapDB remain disabled.
+- No Web/Thymeleaf dependency is present when only the core starter is used.
+- Micrometer meters are registered only when a `MeterRegistry` is present.
+
+See [CONFIGURATION_REFERENCE.md](CONFIGURATION_REFERENCE.md) for every property and default.
+
+## 11. Metrics
+
+With Micrometer present and `asl.observability.enabled=true`, ASL exports:
+
+- `asl.method.success`, `errors`, `rejected`.
+- Observation reset changes the admin/API window only; exported counters remain monotonic for correct rate calculations.
+- `asl.method.in.flight`, `peak.in.flight`, `max.concurrency`, `enabled`, `async.mode`, `consumer.threads`.
+- `asl.mapdb.writer.*` command, queue, and commit metrics.
+- `asl.mapdb.enqueue.active` and `asl.mapdb.enqueue.max`.
+- `asl.mapdb.worker.*` health, failure, and scheduling metrics.
+- `asl.mapdb.projection.version`.
+- `asl.mapdb.lane.pending`, `.lane.in.progress`, `.lane.retry.wait`, `.lane.failed` and `.lane.oldest.pending.age` (ms) per lane; alert on queue age rather than depth.
+- `asl.mapdb.execution.timeouts`, `asl.mapdb.leases.reclaimed`, `asl.mapdb.released.on.shutdown`.
+- `asl.method.duration` Timer when `asl.observability.method-latency-enabled=true`.
+- With Spring Boot Actuator, health contributor `aslMapDb` is DOWN when the writer stopped, the store failed or the coordinator heartbeat is older than 60 s; queue backlog is reported as detail only. Disable with `management.health.aslmapdb.enabled=false`.
+- `asl.mapdb.engine.healthy` (1/0) and `asl.mapdb.writer.accepting` (1/0). Alert when either is `0`: the engine stopped after a fatal storage failure and needs a restart.
+
+Service and method are metric tags. `asl.observability.max-method-meters` fails startup when the governed method count exceeds its cap, preventing accidental cardinality growth.
+
+## 12. Failure and Recovery Model
+
+- A second process opening the same queue receives `MapDbStoreLockedException`; ASL does not silently open another file.
+- Permission, lock, unsupported format, disk, and generic I/O failures are fatal and never classified as corruption reset candidates.
+- Validated header corruption produces `MapDbStoreCorruptionException` under `FAIL_FAST`.
+- Under `ARCHIVE_AND_RESET`, the database and companion WAL files are moved as one rollback-protected set before an empty store starts.
+- Claimed work uses lease tokens. Stale completion/failure writes cannot overwrite a newer owner.
+- Restarted in-progress records return to pending state and may execute again.
+- Clear/delete operations do not remove in-progress records.
+
+The destructive nightly suite force-kills the sample during pending, failed, and in-progress states. Filesystem loss, disk-full behavior, and storage hardware guarantees remain deployment responsibilities.
+
+## 13. Build and Release Gates
+
+```powershell
+mvn -B -ntp clean verify
+.\scripts\run-api-compatibility-gate.ps1
+.\scripts\run-data-plane-performance-gate.ps1 -Threads 1,8,32,128
+mvn -B -ntp -Psbom -DskipTests package
+```
+
+- JMH compares direct, excluded, governed, rejected, and exception paths.
+- The API gate compares public annotation/core/MapDB binaries with the latest reachable release tag.
+- CycloneDX aggregate SBOM files are written to `target/bom.json` and `target/bom.xml`.
+- CI covers Windows/Linux and Temurin/Semeru Java 21.
+- `mvn verify` enforces a per-module line-coverage floor from each module's own tests (`jacoco.line.minimum`); the aggregate report is in `asl-coverage`.
+- Pull requests run GitHub dependency review (fails on high-severity advisories); Dependabot proposes weekly Maven and Actions updates.
+
+Performance gates protect against regression; they do not prove zero overhead. Successful governed calls necessarily perform policy reads and counters. The target is bounded, measured overhead with no extra allocation on successful sync paths.
+
+## 14. Kubernetes Checklist
+
+- Use explicit CPU and memory requests/limits.
+- Tune worker threads to workload type and CPU quota.
+- Keep queue limits below PVC and memory budgets.
+- Use one MapDB owner per file.
+- Use graceful termination long enough for worker shutdown.
+- Alert on writer failures, rejected admissions, queue depth, lease health, and commit latency.
+- Use an external broker when HPA replicas must consume one shared logical queue.
+- Manage multiple replicas from the central admin server, not from per-pod portals; give the server one small ReadWriteOnce volume.
+
+## 15. Runnable Reference
+
+The [consumer sample](asl-consumer-sample/README.md) includes real service endpoints, backlog/failure/replay controls, benchmark scripts, and crash-recovery scenarios.

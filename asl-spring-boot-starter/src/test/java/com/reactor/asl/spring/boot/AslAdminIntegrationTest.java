@@ -18,6 +18,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Bean;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -28,6 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,7 +39,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @SpringBootTest(
         classes = AslAdminIntegrationTest.TestApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+                "asl.admin.enabled=true",
+                "asl.admin.security.allow-unauthenticated=true"
+        }
 )
 class AslAdminIntegrationTest {
     private static final String SERVICE_ID = "demo.service";
@@ -88,6 +96,44 @@ class AslAdminIntegrationTest {
         assertTrue(((Number) summaryResponse.getBody().get("methodCount")).intValue() >= 2);
         assertTrue(summaryResponse.getBody().containsKey("attentionItems"));
         assertTrue(summaryResponse.getBody().containsKey("storageRecovery"));
+    }
+
+    @Test
+    void exposesCacheablePaginatedProjectionAndRejectsInvalidRanges() {
+        ResponseEntity<Map> first = restTemplate.getForEntity("/asl/api/projection?page=0&size=1", Map.class);
+
+        assertEquals(HttpStatus.OK, first.getStatusCode());
+        assertEquals(1, ((List<?>) first.getBody().get("services")).size());
+        assertEquals(1, ((Number) first.getBody().get("size")).intValue());
+        String etag = first.getHeaders().getETag();
+        assertTrue(etag != null && etag.startsWith("W/\""));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(etag);
+        ResponseEntity<Void> unchanged = restTemplate.exchange(
+                "/asl/api/projection?page=0&size=1",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                Void.class
+        );
+        assertEquals(HttpStatus.NOT_MODIFIED, unchanged.getStatusCode());
+
+        registry.service(SERVICE_ID).methodById(METHOD_ID).disable("projection-changed");
+        ResponseEntity<String> changed = restTemplate.exchange(
+                "/asl/api/projection?page=0&size=1",
+                HttpMethod.GET,
+                new HttpEntity<>(headers),
+                String.class
+        );
+        assertEquals(HttpStatus.OK, changed.getStatusCode());
+        assertFalse(etag.equals(changed.getHeaders().getETag()));
+
+        assertEquals(HttpStatus.BAD_REQUEST,
+                restTemplate.getForEntity("/asl/api/projection?page=-1", String.class).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST,
+                restTemplate.getForEntity("/asl/api/projection?size=-1", String.class).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST,
+                restTemplate.getForEntity("/asl/api/projection?size=201", String.class).getStatusCode());
     }
 
     @Test
@@ -193,6 +239,9 @@ class AslAdminIntegrationTest {
         assertTrue(response.getBody().contains("Attention Queue"));
         assertTrue(response.getBody().contains("Open Highest-Priority Lane"));
         assertTrue(response.getBody().contains("/asl/api/summary"));
+        assertTrue(response.getBody().contains("/asl/api/projection"));
+        assertTrue(response.getBody().contains("AbortController"));
+        assertFalse(response.getBody().contains("DOMParser"));
 
         ResponseEntity<String> disablePageResponse = restTemplate.postForEntity(
                 UriComponentsBuilder.fromUriString(uri("/asl/services/{serviceId}/methods/{methodId}/disable"))
@@ -414,6 +463,7 @@ class AslAdminIntegrationTest {
 
     static final class InMemoryAsyncExecutionEngine implements AsyncExecutionEngine {
         private final Map<String, List<MethodBufferEntryView>> entries = new ConcurrentHashMap<>();
+        private final AtomicLong projectionVersion = new AtomicLong();
 
         InMemoryAsyncExecutionEngine() {
             reset();
@@ -426,6 +476,7 @@ class AslAdminIntegrationTest {
             entries.put(key(SERVICE_ID, ASYNC_METHOD_ID), new ArrayList<>(List.of(
                     new MethodBufferEntryView("async-failed-1", "FAILED", "async payload", Instant.parse("2026-03-24T09:01:00Z"), 1, "java.lang.IllegalStateException: boom", "java.lang.IllegalStateException", "BUSINESS", "jackson-json-v1", "demo.publish", "v2")
             )));
+            projectionVersion.incrementAndGet();
         }
 
         @Override
@@ -446,6 +497,11 @@ class AslAdminIntegrationTest {
         }
 
         @Override
+        public long projectionVersion() {
+            return projectionVersion.get();
+        }
+
+        @Override
         public MethodBufferSnapshot snapshot(String serviceId, String methodId, int limit) {
             List<MethodBufferEntryView> current = entries.getOrDefault(key(serviceId, methodId), List.of());
             List<MethodBufferEntryView> preview = current.stream().limit(limit).toList();
@@ -463,6 +519,9 @@ class AslAdminIntegrationTest {
             }
             int cleared = current.size();
             current.clear();
+            if (cleared > 0) {
+                projectionVersion.incrementAndGet();
+            }
             return cleared;
         }
 
@@ -472,7 +531,11 @@ class AslAdminIntegrationTest {
             if (current == null) {
                 return false;
             }
-            return current.removeIf(entry -> entry.entryId().equals(entryId));
+            boolean deleted = current.removeIf(entry -> entry.entryId().equals(entryId));
+            if (deleted) {
+                projectionVersion.incrementAndGet();
+            }
+            return deleted;
         }
 
         @Override
@@ -497,6 +560,7 @@ class AslAdminIntegrationTest {
                             entry.payloadType(),
                             entry.payloadVersion()
                     ));
+                    projectionVersion.incrementAndGet();
                     return true;
                 }
             }

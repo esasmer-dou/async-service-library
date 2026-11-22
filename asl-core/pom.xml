@@ -10,6 +10,10 @@
     </parent>
 
     <artifactId>asl-core</artifactId>
+
+    <properties>
+        <jacoco.line.minimum>0.75</jacoco.line.minimum>
+    </properties>
     <name>asl-core</name>
 
     <dependencies>

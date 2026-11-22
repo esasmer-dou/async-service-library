@@ -1,0 +1,58 @@
+{
+  "properties": [
+    {
+      "name": "asl.async.mapdb.admission.max-total-payload-bytes",
+      "type": "java.lang.Long",
+      "defaultValue": 536870912,
+      "description": "Global persisted payload-byte limit. Defaults to 512 MiB."
+    },
+    {
+      "name": "asl.async.mapdb.admission.default-lane-max-payload-bytes",
+      "type": "java.lang.Long",
+      "defaultValue": 67108864,
+      "description": "Default per-method persisted payload-byte limit. Defaults to 64 MiB."
+    },
+    {
+      "name": "asl.async.mapdb.admission.max-single-payload-bytes",
+      "type": "java.lang.Long",
+      "defaultValue": 1048576,
+      "description": "Maximum encoded payload size for one invocation. Defaults to 1 MiB."
+    },
+    {
+      "name": "asl.async.mapdb.admission.overflow-policy",
+      "type": "com.reactor.asl.mapdb.QueueOverflowPolicy",
+      "defaultValue": "REJECT",
+      "description": "Admission behavior when a bounded capacity is exhausted."
+    },
+    {
+      "name": "asl.async.mapdb.corruption-policy",
+      "type": "com.reactor.asl.mapdb.MapDbCorruptionPolicy",
+      "defaultValue": "FAIL_FAST",
+      "description": "Startup behavior for confirmed MapDB header corruption."
+    },
+    {
+      "name": "asl.async.mapdb.idempotency.retention-millis",
+      "type": "java.lang.Long",
+      "defaultValue": 86400000,
+      "description": "Retention window for completed idempotency keys. Defaults to 24 hours."
+    },
+    {
+      "name": "asl.async.mapdb.workers.max-threads",
+      "type": "java.lang.Integer",
+      "defaultValue": "max(2, min(availableProcessors, 32))",
+      "description": "Shared worker pool upper bound. The runtime default is max(2, min(availableProcessors, 32))."
+    },
+    {
+      "name": "asl.async.mapdb.payload.summary-policy",
+      "type": "com.reactor.asl.mapdb.PayloadSummaryPolicy",
+      "defaultValue": "TYPE_ONLY",
+      "description": "Controls whether stored/admin payload summaries contain no data, type data, or codec-provided data."
+    },
+    {
+      "name": "asl.async.mapdb.payload.error-detail-policy",
+      "type": "com.reactor.asl.mapdb.ErrorDetailPolicy",
+      "defaultValue": "TYPE_ONLY",
+      "description": "Controls whether persisted errors contain only the exception type or also its message."
+    }
+  ]
+}

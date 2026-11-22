@@ -47,7 +47,10 @@ class MapDbAsyncExecutionEngineTest {
             engine.applyRuntime(runtime);
 
             assertTrue(consumed.await(5, TimeUnit.SECONDS));
-            waitFor(() -> engine.snapshot("demo.service", "publish(java.lang.String)", 10).pendingCount() == 0, 5);
+            waitFor(() -> {
+                var snapshot = engine.snapshot("demo.service", "publish(java.lang.String)", 10);
+                return snapshot.pendingCount() == 0 && snapshot.inProgressCount() == 0;
+            }, 5);
             assertEquals(1, runtime.stats().successCount());
         }
     }
@@ -100,7 +103,10 @@ class MapDbAsyncExecutionEngineTest {
             assertTrue(replaySucceeded.await(5, TimeUnit.SECONDS));
             waitFor(() -> {
                 var snapshot = engine.snapshot("demo.service", "publish(java.lang.String)", 10);
-                return snapshot.pendingCount() == 0 && snapshot.failedCount() == 0;
+                return snapshot.pendingCount() == 0
+                        && snapshot.failedCount() == 0
+                        && snapshot.inProgressCount() == 0
+                        && runtime.stats().successCount() == 1;
             }, 5);
             assertEquals(1, runtime.stats().successCount());
             assertEquals(1, runtime.stats().errorCount());

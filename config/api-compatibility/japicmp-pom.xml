@@ -1,0 +1,48 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.reactor.asl.build</groupId>
+    <artifactId>api-compatibility-gate</artifactId>
+    <version>1</version>
+    <packaging>pom</packaging>
+
+    <properties>
+        <old.jar>missing-old.jar</old.jar>
+        <new.jar>missing-new.jar</new.jar>
+        <report.dir>${project.basedir}/../../target/api-compatibility/report</report.dir>
+    </properties>
+
+    <build>
+        <directory>${report.dir}</directory>
+        <plugins>
+            <plugin>
+                <groupId>com.github.siom79.japicmp</groupId>
+                <artifactId>japicmp-maven-plugin</artifactId>
+                <version>0.26.1</version>
+                <configuration>
+                    <oldVersion>
+                        <file>
+                            <path>${old.jar}</path>
+                        </file>
+                    </oldVersion>
+                    <newVersion>
+                        <file>
+                            <path>${new.jar}</path>
+                        </file>
+                    </newVersion>
+                    <parameter>
+                        <accessModifier>PUBLIC</accessModifier>
+                        <onlyModified>true</onlyModified>
+                        <breakBuildOnBinaryIncompatibleModifications>true</breakBuildOnBinaryIncompatibleModifications>
+                        <breakBuildOnSourceIncompatibleModifications>true</breakBuildOnSourceIncompatibleModifications>
+                        <ignoreMissingClasses>true</ignoreMissingClasses>
+                        <reportOnlyFilename>true</reportOnlyFilename>
+                        <skipPomModules>false</skipPomModules>
+                    </parameter>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

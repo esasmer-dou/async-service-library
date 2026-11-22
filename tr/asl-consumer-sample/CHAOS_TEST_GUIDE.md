@@ -103,7 +103,7 @@ Admin panelde:
 Bu senaryolar başarılıysa sample uygulama şu davranışları göstermelidir:
 
 - JVM kill sonrası uygulama fatal startup hatasıyla kalmamalı.
-- Bozuk demo queue dosyası policy izin veriyorsa arşivlenmeli veya recovery path’e geçilmelidir.
+- Doğrulanmış header bozulmasında `FAIL_FAST` dosyayı değiştirmeden başlangıcı durdurmalı; yalnız `ARCHIVE_AND_RESET` seçilmişse bozuk store arşivlenip boş kuyruk açılmalıdır.
 - Admin UI recovery durumunu banner ile göstermelidir.
 - Failed işler görünür, replay edilebilir ve silinebilir olmalıdır.
 - Pending backlog operatör tarafından consumer thread artırılarak eritilebilmelidir.

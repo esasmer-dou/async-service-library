@@ -1,0 +1,3 @@
+com.reactor.asl.spring.boot.AslMapDbAutoConfiguration
+com.reactor.asl.spring.boot.AslMapDbMetricsAutoConfiguration
+com.reactor.asl.spring.boot.AslMapDbHealthAutoConfiguration

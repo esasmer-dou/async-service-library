@@ -8,8 +8,11 @@ import com.reactor.asl.core.ServiceRuntime;
 import com.reactor.asl.mapdb.MapDbAsyncExecutionEngine;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -141,26 +144,63 @@ class GeneratedWrapperTest {
             }
         };
 
-        GovernanceRegistry registry = new GovernanceRegistry();
-        try (MapDbAsyncExecutionEngine engine = new MapDbAsyncExecutionEngine(dbFile)) {
-            registry.attachAsyncExecutionEngine(engine);
-            SampleService service = SampleServiceAsl.wrap(delegate, registry);
+        try {
+            GovernanceRegistry registry = new GovernanceRegistry();
+            try (MapDbAsyncExecutionEngine engine = new MapDbAsyncExecutionEngine(dbFile)) {
+                registry.attachAsyncExecutionEngine(engine);
+                SampleService service = SampleServiceAsl.wrap(delegate, registry);
 
-            ServiceRuntime runtime = registry.service(SampleServiceAsl.SERVICE_ID);
-            var publishRuntime = runtime.methodByName("publish");
-            publishRuntime.switchMode(ExecutionMode.ASYNC);
-            publishRuntime.setConsumerThreads(1);
-            engine.applyRuntime(publishRuntime);
+                ServiceRuntime runtime = registry.service(SampleServiceAsl.SERVICE_ID);
+                var publishRuntime = runtime.methodByName("publish");
+                publishRuntime.switchMode(ExecutionMode.ASYNC);
+                publishRuntime.setConsumerThreads(1);
+                engine.applyRuntime(publishRuntime);
 
-            service.publish("queued-message");
+                service.publish("queued-message");
 
-            assertTrue(published.await(5, TimeUnit.SECONDS));
-            assertEquals(1, publishedValues.size());
-            assertEquals("queued-message", publishedValues.getFirst());
-            MethodStatsSnapshot stats = publishRuntime.stats();
-            assertEquals(1, stats.successCount());
-            assertEquals(0, stats.errorCount());
-            assertEquals(0, stats.rejectedCount());
+                assertTrue(published.await(5, TimeUnit.SECONDS));
+                assertEquals(1, publishedValues.size());
+                assertEquals("queued-message", publishedValues.getFirst());
+                assertTrue(awaitCondition(() -> publishRuntime.stats().successCount() == 1, 5));
+                MethodStatsSnapshot stats = publishRuntime.stats();
+                assertEquals(1, stats.successCount());
+                assertEquals(0, stats.errorCount());
+                assertEquals(0, stats.rejectedCount());
+            }
+        } finally {
+            deleteDirectoryWithRetries(dbDir);
         }
+    }
+
+    private static boolean awaitCondition(java.util.function.BooleanSupplier condition, int timeoutSeconds)
+            throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds);
+        while (System.nanoTime() < deadline) {
+            if (condition.getAsBoolean()) {
+                return true;
+            }
+            Thread.sleep(10L);
+        }
+        return condition.getAsBoolean();
+    }
+
+    private static void deleteDirectoryWithRetries(Path directory) throws IOException, InterruptedException {
+        IOException lastFailure = null;
+        for (int attempt = 1; attempt <= 40; attempt++) {
+            try {
+                List<Path> paths;
+                try (var walk = Files.walk(directory)) {
+                    paths = walk.sorted(Comparator.reverseOrder()).toList();
+                }
+                for (Path path : paths) {
+                    Files.deleteIfExists(path);
+                }
+                return;
+            } catch (IOException exception) {
+                lastFailure = exception;
+                Thread.sleep(25L);
+            }
+        }
+        throw new IOException("Temporary MapDB store remained locked: " + directory, lastFailure);
     }
 }

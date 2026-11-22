@@ -1,6 +1,7 @@
 package com.reactor.asl.consumer.sample;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
@@ -12,9 +13,12 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -25,9 +29,39 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AslConsumerSampleChaosRecoveryTest {
     private static final String CHAOS_SERVICE_ID = "chaos.service";
     private static final String CHAOS_METHOD_ID = "emit(java.lang.String)";
+    private static final int WINDOWS_DELETE_ATTEMPTS = 40;
+    private static final long WINDOWS_DELETE_RETRY_MILLIS = 25L;
 
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void verifyStoreArtifactsAreDeletableAfterApplicationShutdown() throws IOException {
+        IOException lastFailure = null;
+        for (int attempt = 1; attempt <= WINDOWS_DELETE_ATTEMPTS; attempt++) {
+            try {
+                List<Path> artifacts;
+                try (var paths = Files.walk(tempDir)) {
+                    artifacts = paths
+                            .filter(path -> !path.equals(tempDir))
+                            .sorted(Comparator.reverseOrder())
+                            .toList();
+                }
+                for (Path artifact : artifacts) {
+                    Files.deleteIfExists(artifact);
+                }
+                try (var remaining = Files.list(tempDir)) {
+                    if (remaining.findAny().isEmpty()) {
+                        return;
+                    }
+                }
+            } catch (IOException exception) {
+                lastFailure = exception;
+            }
+            sleepBeforeDeleteRetry();
+        }
+        throw new IOException("MapDB artifacts remained locked after application shutdown: " + tempDir, lastFailure);
+    }
 
     @Test
     void pendingQueueSurvivesRestartAndProcessesAfterRecovery() {
@@ -65,6 +99,7 @@ class AslConsumerSampleChaosRecoveryTest {
 
         try (SampleAppHandle app = SampleAppHandle.start(dbPath)) {
             app.configureChaosScenario(0, 0L);
+            app.switchMode(CHAOS_SERVICE_ID, CHAOS_METHOD_ID, "ASYNC");
             String entryId = app.firstEntryId(CHAOS_SERVICE_ID, CHAOS_METHOD_ID);
             app.replay(CHAOS_SERVICE_ID, CHAOS_METHOD_ID, entryId);
             app.resizeConsumers(CHAOS_SERVICE_ID, CHAOS_METHOD_ID, 1);
@@ -242,5 +277,14 @@ class AslConsumerSampleChaosRecoveryTest {
     @FunctionalInterface
     private interface Check {
         boolean matches();
+    }
+
+    private static void sleepBeforeDeleteRetry() throws IOException {
+        try {
+            Thread.sleep(WINDOWS_DELETE_RETRY_MILLIS);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while verifying MapDB artifact cleanup", exception);
+        }
     }
 }

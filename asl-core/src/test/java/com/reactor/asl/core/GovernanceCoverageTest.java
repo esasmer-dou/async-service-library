@@ -18,6 +18,7 @@ class GovernanceCoverageTest {
     void validatesDescriptorsPoliciesAndValueObjects() {
         assertThrows(IllegalArgumentException.class, () -> new MethodDescriptor("m", "m", true, 0, "", false, 0));
         assertThrows(IllegalArgumentException.class, () -> new MethodDescriptor("m", "m", true, 1, "", false, -1));
+        assertThrows(IllegalArgumentException.class, () -> new MethodDescriptor("m", "m", true, 1, "", false, 1));
         assertThrows(IllegalArgumentException.class, () -> MethodPolicy.enabled(0));
 
         MethodPolicy unbounded = MethodPolicy.enabledUnbounded();
@@ -97,7 +98,7 @@ class GovernanceCoverageTest {
         assertTrue(asyncRuntime.tryBeginAsyncExecution());
         asyncRuntime.onError(new IllegalArgumentException("bad"));
         asyncRuntime.release();
-        assertTrue(asyncRuntime.lastError().contains("bad"));
+        assertEquals(IllegalArgumentException.class.getName(), asyncRuntime.lastError());
         MethodRuntimeSnapshot runtimeSnapshot = asyncRuntime.snapshot();
         assertTrue(runtimeSnapshot.asyncCapable());
         assertEquals(ExecutionMode.ASYNC, runtimeSnapshot.executionMode());
@@ -178,9 +179,8 @@ class GovernanceCoverageTest {
         assertSame(engine, registry.asyncExecutionEngine());
         assertEquals(1, registrations.get());
 
-        registry.registerAsyncMethod(asyncRuntime, arguments -> {
-        });
-        assertEquals(2, registrations.get());
+        assertThrows(IllegalStateException.class, () -> registry.registerAsyncMethod(asyncRuntime, arguments -> { }));
+        assertEquals(1, registrations.get());
 
         asyncRuntime.disable("paused");
         MethodUnavailableException disabled = assertThrows(

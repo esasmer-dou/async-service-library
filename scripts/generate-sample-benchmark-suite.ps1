@@ -10,6 +10,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "java-tooling.ps1")
+
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $PSScriptRoot "..\reports\real-sample"
 }
@@ -235,15 +237,17 @@ New-Item -ItemType Directory -Path $sampleRuntimeDirectory -Force | Out-Null
 
 try {
     if ($StartSample) {
+        $javaTooling = Initialize-AslJavaTooling
         $targetUri = Get-AvailableBaseUrl -PreferredUri $targetUri
         $baseUri = $targetUri.AbsoluteUri.TrimEnd("/")
-        & mvn.cmd "-pl" "asl-spring-boot-starter,asl-consumer-sample" "-am" "-DskipTests" "install" | Out-Null
+        & $javaTooling.MavenCommand "-pl" "asl-spring-boot-starter,asl-consumer-sample" "-am" "-DskipTests" "install" | Out-Null
 
         $sampleLogPath = Join-Path $OutputDirectory "sample-run.log"
         $sampleErrorLogPath = Join-Path $OutputDirectory "sample-run.err.log"
         Remove-Item $sampleQueuePattern -Force -ErrorAction SilentlyContinue
         $escapedQueuePath = ($sampleQueuePath -replace "\\", "/")
-        $bootstrapCommand = ('set "SERVER_PORT={0}" && set "ASL_ASYNC_MAPDB_PATH={1}" && mvn.cmd -f "asl-consumer-sample/pom.xml" -am spring-boot:run' -f $targetUri.Port, $escapedQueuePath)
+        $escapedMavenCommand = $javaTooling.MavenCommand.Replace('"', '""')
+        $bootstrapCommand = ('set "SERVER_PORT={0}" && set "ASL_ASYNC_MAPDB_PATH={1}" && "{2}" -f "asl-consumer-sample/pom.xml" -am spring-boot:run' -f $targetUri.Port, $escapedQueuePath, $escapedMavenCommand)
         $startedProcess = Start-Process -FilePath "cmd.exe" `
             -ArgumentList "/c", $bootstrapCommand `
             -WorkingDirectory (Join-Path $PSScriptRoot "..") `

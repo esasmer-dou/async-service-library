@@ -15,6 +15,9 @@ asl:
     path: /asl
     api-path: /asl/api
     buffer-preview-limit: 50
+    security:
+      allow-unauthenticated: true
+      audit-reads: false
     dashboard:
       attention-limit: 8
       medium-utilization-percent: 40
@@ -51,4 +54,6 @@ asl:
       recovered-in-progress-message: Recovered stale in-progress invocation after restart
       transactions-enabled: true
       memory-mapped-enabled: false
-      reset-if-corrupt: true
+      corruption-policy: ARCHIVE_AND_RESET
+      admission:
+        max-concurrent-enqueues: 64

@@ -19,11 +19,11 @@ public final class MethodPolicy {
     }
 
     public static MethodPolicy enabledUnbounded() {
-        return new MethodPolicy(true, UNBOUNDED, MethodRuntime.defaultUnavailableMessage());
+        return new MethodPolicy(true, UNBOUNDED, RuntimeDefaults.STANDARD.unavailableMessage());
     }
 
     public static MethodPolicy enabled(int maxConcurrency) {
-        return new MethodPolicy(true, maxConcurrency, MethodRuntime.defaultUnavailableMessage());
+        return new MethodPolicy(true, maxConcurrency, RuntimeDefaults.STANDARD.unavailableMessage());
     }
 
     public static MethodPolicy enabled(int maxConcurrency, String unavailableMessage) {

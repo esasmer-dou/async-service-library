@@ -16,13 +16,11 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
-import org.mapdb.HTreeMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -84,27 +82,29 @@ class MapDbAsyncExecutionEngineCoverageTest {
         }
 
         CountDownLatch consumed = new CountDownLatch(1);
+        GovernanceRegistry reopenedRegistry = new GovernanceRegistry();
         try (MapDbAsyncExecutionEngine reopened = new MapDbAsyncExecutionEngine(dbPath)) {
-            registry.attachAsyncExecutionEngine(reopened);
-            registry.registerAsyncMethod(runtime, arguments -> consumed.countDown());
+            reopenedRegistry.attachAsyncExecutionEngine(reopened);
+            reopenedRegistry.registerAsyncMethod(runtime, arguments -> consumed.countDown());
             runtime.setConsumerThreads(1);
             reopened.applyRuntime(runtime);
 
             assertTrue(consumed.await(5, TimeUnit.SECONDS));
-            waitFor(() -> reopened.snapshot("restart.service", "publish()", 10).pendingCount() == 0, 5);
+            waitFor(() -> {
+                MethodBufferSnapshot snapshot = reopened.snapshot("restart.service", "publish()", 10);
+                return snapshot.pendingCount() == 0 && snapshot.inProgressCount() == 0;
+            }, 5);
         }
     }
 
     @Test
-    @SuppressWarnings("unchecked")
-    void recoversStaleInProgressEntriesAsFailedOnRestart() throws Exception {
+    void returnsStaleInProgressEntriesToTheQueueOnRestartWithoutConsumingAnAttempt() throws Exception {
         Path dbPath = testDbPath("stale-recovery");
         try (MapDbAsyncExecutionEngine engine = new MapDbAsyncExecutionEngine(dbPath)) {
-            Field field = MapDbAsyncExecutionEngine.class.getDeclaredField("invocations");
+            java.lang.reflect.Field field = MapDbAsyncExecutionEngine.class.getDeclaredField("queueStore");
             field.setAccessible(true);
-            HTreeMap<Long, StoredAsyncInvocation> invocations = (HTreeMap<Long, StoredAsyncInvocation>) field.get(engine);
-            invocations.put(1L, new StoredAsyncInvocation(
-                    1L,
+            QueueStore store = (QueueStore) field.get(engine);
+            store.enqueue(new QueueStore.NewInvocation(
                     "svc",
                     "publish(java.lang.String)",
                     JavaObjectStreamAsyncPayloadCodec.CODEC_ID,
@@ -112,23 +112,19 @@ class MapDbAsyncExecutionEngineCoverageTest {
                     "payload",
                     "java.lang.String",
                     null,
-                    AsyncInvocationState.IN_PROGRESS,
-                    System.currentTimeMillis(),
-                    0,
                     null,
-                    null,
-                    null
+                    System.currentTimeMillis()
             ));
-            Field dbField = MapDbAsyncExecutionEngine.class.getDeclaredField("db");
-            dbField.setAccessible(true);
-            ((org.mapdb.DB) dbField.get(engine)).commit();
+            assertTrue(store.claimNext("svc", "publish(java.lang.String)", System.currentTimeMillis()).isPresent());
         }
 
         try (MapDbAsyncExecutionEngine reopened = new MapDbAsyncExecutionEngine(dbPath)) {
             MethodBufferSnapshot snapshot = reopened.snapshot("svc", "publish(java.lang.String)", 10);
-            assertEquals(0, snapshot.pendingCount());
-            assertEquals(1, snapshot.failedCount());
-            assertEquals("FAILED", snapshot.entries().getFirst().state());
+            // A crash interrupts the execution; at-least-once delivery returns it to the queue.
+            assertEquals(1, snapshot.pendingCount());
+            assertEquals(0, snapshot.failedCount());
+            assertEquals("PENDING", snapshot.entries().getFirst().state());
+            assertEquals(0, snapshot.entries().getFirst().attempts());
             assertEquals(MapDbAsyncExecutionEngine.RECOVERED_IN_PROGRESS_MESSAGE, snapshot.entries().getFirst().lastError());
             assertEquals("RECOVERY", snapshot.entries().getFirst().errorCategory());
         }
@@ -160,7 +156,10 @@ class MapDbAsyncExecutionEngineCoverageTest {
 
             registry.enqueueAsync(runtime, new Object[]{payload});
             waitFor(() -> engine.snapshot("codec.service", "publish(com.acme.Payload)", 10).pendingCount() == 1, 2);
-            assertEquals("custom-codec-value", engine.snapshot("codec.service", "publish(com.acme.Payload)", 10).entries().getFirst().summary());
+            assertEquals(
+                    "custom.nonserializable.payload",
+                    engine.snapshot("codec.service", "publish(com.acme.Payload)", 10).entries().getFirst().summary()
+            );
             assertEquals("test-payload-codec", engine.snapshot("codec.service", "publish(com.acme.Payload)", 10).entries().getFirst().codecId());
 
             runtime.setConsumerThreads(1);
@@ -208,7 +207,6 @@ class MapDbAsyncExecutionEngineCoverageTest {
             assertTrue(exception.getMessage().contains("Timed out while waiting for worker shutdown"));
         } finally {
             release.countDown();
-            waitFor(() -> runtime.stats().successCount() == 1, 5);
             engine.close();
             closedCleanly.set(true);
         }

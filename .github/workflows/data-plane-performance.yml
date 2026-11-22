@@ -1,0 +1,50 @@
+name: Data Plane Performance Gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 2 * * 2,5"
+  pull_request:
+    paths:
+      - "asl-core/**"
+      - "asl-annotations/**"
+      - "asl-processor/**"
+      - "asl-benchmarks/**"
+      - "config/performance/**"
+      - "scripts/run-data-plane-performance-gate.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  jmh-regression:
+    name: ${{ matrix.os }} / ${{ matrix.distribution }} / Java 21
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        distribution: [temurin, semeru]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: ${{ matrix.distribution }}
+          java-version: "21"
+          cache: maven
+
+      - name: Run generated-wrapper performance gate
+        shell: pwsh
+        run: ./scripts/run-data-plane-performance-gate.ps1 -Threads 1,8,32,128 -Warmup 2 -Iterations 3 -Forks 1
+
+      - name: Upload JMH evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-plane-${{ matrix.os }}-${{ matrix.distribution }}
+          path: asl-benchmarks/target/performance-gate
+          if-no-files-found: warn

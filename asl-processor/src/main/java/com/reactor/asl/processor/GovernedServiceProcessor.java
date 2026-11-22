@@ -1,6 +1,7 @@
 package com.reactor.asl.processor;
 
 import com.reactor.asl.annotations.Excluded;
+import com.reactor.asl.annotations.AsyncIdempotencyKey;
 import com.reactor.asl.annotations.GovernedMethod;
 import com.reactor.asl.annotations.GovernedService;
 
@@ -19,7 +20,10 @@ import javax.lang.model.element.Modifier;
 import javax.lang.model.element.NestingKind;
 import javax.lang.model.element.PackageElement;
 import javax.lang.model.element.TypeElement;
+import javax.lang.model.element.TypeParameterElement;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.DeclaredType;
+import javax.lang.model.type.ExecutableType;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.tools.Diagnostic;
@@ -67,6 +71,9 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             }
             if (typeElement.getModifiers().contains(Modifier.PRIVATE)) {
                 error(typeElement, "@GovernedService interface cannot be private");
+                continue;
+            }
+            if (!validateNesting(typeElement)) {
                 continue;
             }
 
@@ -168,38 +175,138 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         }
     }
 
-    private List<MethodModel> collectMethods(TypeElement typeElement) {
-        List<MethodModel> methods = new ArrayList<>();
-        int managedIndex = 0;
-        for (Element enclosed : typeElement.getEnclosedElements()) {
+    private boolean validateNesting(TypeElement typeElement) {
+        Element current = typeElement;
+        while (current instanceof TypeElement type) {
+            if (type.getNestingKind() == NestingKind.LOCAL || type.getNestingKind() == NestingKind.ANONYMOUS) {
+                error(typeElement, "@GovernedService does not support local interfaces");
+                return false;
+            }
+            if (type != typeElement && type.getModifiers().contains(Modifier.PRIVATE)) {
+                error(typeElement, "@GovernedService interface must not be nested in a private type");
+                return false;
+            }
+            current = type.getEnclosingElement();
+        }
+        return true;
+    }
+
+    /**
+     * Abstract methods of the governed interface including inherited ones, own methods first, then
+     * super-interfaces depth-first in declaration order. Signatures already seen (including ones
+     * overridden by a default method) are skipped. Types are resolved as seen from the governed
+     * interface, so {@code interface Orders extends Crud<Order>} yields {@code save(Order)}.
+     */
+    private List<ExecutableElement> abstractMethods(TypeElement governed) {
+        List<ExecutableElement> result = new ArrayList<>();
+        collectAbstractMethods(governed, (DeclaredType) governed.asType(), new LinkedHashSet<>(), new LinkedHashSet<>(), result);
+        return result;
+    }
+
+    private void collectAbstractMethods(
+            TypeElement type,
+            DeclaredType governedType,
+            Set<String> seenSignatures,
+            Set<String> visitedTypes,
+            List<ExecutableElement> result
+    ) {
+        if (!visitedTypes.add(type.getQualifiedName().toString())
+                || "java.lang.Object".contentEquals(type.getQualifiedName())) {
+            return;
+        }
+        for (Element enclosed : type.getEnclosedElements()) {
             if (enclosed.getKind() != ElementKind.METHOD) {
                 continue;
             }
             ExecutableElement method = (ExecutableElement) enclosed;
-            if (method.isDefault() || method.getModifiers().contains(Modifier.STATIC)) {
+            if (method.getModifiers().contains(Modifier.STATIC) || method.getModifiers().contains(Modifier.PRIVATE)) {
                 continue;
             }
+            if (!seenSignatures.add(erasedSignature(method, governedType))) {
+                continue;
+            }
+            if (!method.isDefault()) {
+                result.add(method);
+            }
+        }
+        for (TypeMirror superInterface : type.getInterfaces()) {
+            Element element = processingEnv.getTypeUtils().asElement(superInterface);
+            if (element instanceof TypeElement superType) {
+                collectAbstractMethods(superType, governedType, seenSignatures, visitedTypes, result);
+            }
+        }
+    }
+
+    private String erasedSignature(ExecutableElement method, DeclaredType governedType) {
+        ExecutableType resolved = resolve(method, governedType);
+        StringBuilder builder = new StringBuilder(method.getSimpleName()).append('(');
+        for (TypeMirror parameter : resolved.getParameterTypes()) {
+            builder.append(processingEnv.getTypeUtils().erasure(parameter)).append(',');
+        }
+        return builder.append(')').toString();
+    }
+
+    private ExecutableType resolve(ExecutableElement method, DeclaredType governedType) {
+        return (ExecutableType) processingEnv.getTypeUtils().asMemberOf(governedType, method);
+    }
+
+    private List<MethodModel> collectMethods(TypeElement typeElement) {
+        List<MethodModel> methods = new ArrayList<>();
+        int managedIndex = 0;
+        DeclaredType governedType = (DeclaredType) typeElement.asType();
+        for (ExecutableElement method : abstractMethods(typeElement)) {
+            ExecutableType resolved = resolve(method, governedType);
 
             boolean excluded = method.getAnnotation(Excluded.class) != null;
             GovernedMethod governedMethod = method.getAnnotation(GovernedMethod.class);
             String methodId = governedMethod != null && !governedMethod.id().isBlank()
                     ? governedMethod.id()
-                    : methodSignature(method);
+                    : methodSignature(method, resolved);
             String unavailableMessage = governedMethod == null ? "" : governedMethod.unavailableMessage();
             boolean initiallyEnabled = governedMethod == null || governedMethod.initiallyEnabled();
             int initialMaxConcurrency = governedMethod == null
                     ? Integer.MAX_VALUE
                     : governedMethod.initialMaxConcurrency();
             boolean asyncCapable = governedMethod != null && governedMethod.asyncCapable();
-            int initialConsumerThreads = governedMethod == null ? 0 : governedMethod.initialConsumerThreads();
+            int initialConsumerThreads = governedMethod == null || !asyncCapable
+                    ? 0
+                    : governedMethod.initialConsumerThreads();
 
-            if (asyncCapable && !"void".equals(method.getReturnType().toString())) {
+            if (asyncCapable && resolved.getReturnType().getKind() != TypeKind.VOID) {
                 error(method, "@GovernedMethod(asyncCapable=true) is currently supported only for void methods");
+                continue;
+            }
+
+            int idempotencyParameterIndex = -1;
+            boolean invalidIdempotencyParameter = false;
+            List<? extends VariableElement> parameters = method.getParameters();
+            for (int parameterIndex = 0; parameterIndex < parameters.size(); parameterIndex++) {
+                VariableElement parameter = parameters.get(parameterIndex);
+                if (parameter.getAnnotation(AsyncIdempotencyKey.class) == null) {
+                    continue;
+                }
+                if (!asyncCapable) {
+                    error(parameter, "@AsyncIdempotencyKey is supported only on async-capable methods");
+                    invalidIdempotencyParameter = true;
+                }
+                if (!"java.lang.String".equals(resolved.getParameterTypes().get(parameterIndex).toString())) {
+                    error(parameter, "@AsyncIdempotencyKey parameter type must be java.lang.String");
+                    invalidIdempotencyParameter = true;
+                }
+                if (idempotencyParameterIndex >= 0) {
+                    error(parameter, "Only one @AsyncIdempotencyKey parameter is allowed per method");
+                    invalidIdempotencyParameter = true;
+                } else {
+                    idempotencyParameterIndex = parameterIndex;
+                }
+            }
+            if (invalidIdempotencyParameter) {
                 continue;
             }
 
             methods.add(new MethodModel(
                     method,
+                    resolved,
                     excluded,
                     methodId,
                     method.getSimpleName().toString(),
@@ -208,6 +315,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                     initialMaxConcurrency,
                     asyncCapable,
                     initialConsumerThreads,
+                    idempotencyParameterIndex,
                     excluded ? -1 : managedIndex++
             ));
         }
@@ -230,10 +338,13 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
 
     private void generateFactory(TypeElement typeElement, List<MethodModel> methods) throws IOException {
         String packageName = packageName(typeElement);
-        String interfaceName = typeElement.getSimpleName().toString();
-        String factoryName = interfaceName + "Asl";
-        String wrapperName = interfaceName + "AslGoverned";
+        String baseName = generatedBaseName(typeElement);
+        String factoryName = baseName + "Asl";
+        String wrapperName = baseName + "AslGoverned";
         String qualifiedName = packageName.isBlank() ? factoryName : packageName + "." + factoryName;
+        String typeParameters = typeParameterDeclarations(typeElement.getTypeParameters());
+        String typeArguments = typeArguments(typeElement.getTypeParameters());
+        String interfaceType = typeElement.getQualifiedName() + typeArguments;
         GovernedService governedService = typeElement.getAnnotation(GovernedService.class);
         String serviceId = governedService != null && !governedService.id().isBlank()
                 ? governedService.id()
@@ -260,9 +371,10 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             writer.write("\n");
             writer.write("    private " + factoryName + "() {\n");
             writer.write("    }\n\n");
-            writer.write("    public static " + interfaceName + " wrap(" + interfaceName
-                    + " delegate, GovernanceRegistry registry) {\n");
-            writer.write("        return new " + wrapperName + "(delegate, registry);\n");
+            writer.write("    public static " + (typeParameters.isEmpty() ? "" : typeParameters + " ") + interfaceType
+                    + " wrap(" + interfaceType + " delegate, GovernanceRegistry registry) {\n");
+            writer.write("        return new " + wrapperName + (typeArguments.isEmpty() ? "" : "<>")
+                    + "(delegate, registry);\n");
             writer.write("    }\n\n");
             writer.write("    static ServiceDescriptor descriptor() {\n");
             writer.write("        return new ServiceDescriptor(SERVICE_ID, new MethodDescriptor[] {\n");
@@ -292,10 +404,13 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
 
     private void generateWrapper(TypeElement typeElement, List<MethodModel> methods) throws IOException {
         String packageName = packageName(typeElement);
-        String interfaceName = typeElement.getSimpleName().toString();
-        String wrapperName = interfaceName + "AslGoverned";
-        String factoryName = interfaceName + "Asl";
+        String baseName = generatedBaseName(typeElement);
+        String wrapperName = baseName + "AslGoverned";
+        String factoryName = baseName + "Asl";
         String qualifiedName = packageName.isBlank() ? wrapperName : packageName + "." + wrapperName;
+        String typeParameters = typeParameterDeclarations(typeElement.getTypeParameters());
+        String interfaceType = typeElement.getQualifiedName() + typeArguments(typeElement.getTypeParameters());
+        String interfaceClassLiteral = typeElement.getQualifiedName() + ".class";
 
         JavaFileObject file = filer.createSourceFile(qualifiedName, typeElement);
         try (Writer writer = file.openWriter()) {
@@ -303,13 +418,15 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                 writer.write("package " + packageName + ";\n\n");
             }
             writer.write("import com.reactor.asl.core.GovernanceRegistry;\n");
+            writer.write("import com.reactor.asl.core.AsyncInvocationContext;\n");
             writer.write("import com.reactor.asl.core.ExecutionMode;\n");
             writer.write("import com.reactor.asl.core.MethodRuntime;\n");
             writer.write("import com.reactor.asl.core.ServiceRuntime;\n");
             writer.write("import com.reactor.asl.core.Throwables;\n");
             writer.write("import java.util.Objects;\n\n");
-            writer.write("public final class " + wrapperName + " implements " + interfaceName + " {\n");
-            writer.write("    private final " + interfaceName + " delegate;\n");
+            writer.write("@SuppressWarnings({\"unchecked\", \"rawtypes\"})\n");
+            writer.write("public final class " + wrapperName + typeParameters + " implements " + interfaceType + " {\n");
+            writer.write("    private final " + interfaceType + " delegate;\n");
             writer.write("    private final GovernanceRegistry registry;\n");
             for (MethodModel method : methods) {
                 if (!method.excluded()) {
@@ -317,7 +434,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                 }
             }
             writer.write("\n");
-            writer.write("    public " + wrapperName + "(" + interfaceName + " delegate, GovernanceRegistry registry) {\n");
+            writer.write("    public " + wrapperName + "(" + interfaceType + " delegate, GovernanceRegistry registry) {\n");
             writer.write("        this.delegate = Objects.requireNonNull(delegate, \"delegate\");\n");
             writer.write("        this.registry = Objects.requireNonNull(registry, \"registry\");\n");
             writer.write("        ServiceRuntime runtime = this.registry.register(" + factoryName + ".descriptor());\n");
@@ -328,8 +445,12 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             }
             for (MethodModel method : methods) {
                 if (method.asyncCapable()) {
-                    writer.write("        this.registry.registerAsyncMethod(this.method" + method.managedIndex() + ", arguments -> this.delegate."
-                            + method.element().getSimpleName() + "(" + bindingArguments(method.element()) + "));\n");
+                    writer.write("        this.registry.registerAsyncMethod(this.method" + method.managedIndex()
+                            + ", com.reactor.asl.core.AsyncMethodBinding.typed(" + interfaceClassLiteral + ", "
+                            + stringLiteral(method.element().getSimpleName().toString()) + ", "
+                            + erasedParameterClasses(method)
+                            + ", arguments -> this.delegate."
+                            + method.element().getSimpleName() + "(" + bindingArguments(method) + ")));\n");
                 }
             }
             writer.write("    }\n\n");
@@ -357,6 +478,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             writer.write("import org.springframework.context.annotation.Configuration;\n");
             writer.write("import org.springframework.context.annotation.Primary;\n\n");
             writer.write("@Configuration(proxyBeanMethods = false)\n");
+            writer.write("@SuppressWarnings({\"unchecked\", \"rawtypes\"})\n");
             writer.write("public final class " + configName + " {\n");
             for (int i = 0; i < governedTypes.size(); i++) {
                 TypeElement governedType = governedTypes.get(i);
@@ -366,7 +488,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                 writer.write("    public " + governedType.getQualifiedName() + " " + beanMethodName + "("
                         + implementationType.getQualifiedName() + " delegate, "
                         + "com.reactor.asl.core.GovernanceRegistry registry) {\n");
-                writer.write("        return " + governedType.getQualifiedName() + "Asl.wrap(delegate, registry);\n");
+                writer.write("        return " + factoryQualifiedName(governedType) + ".wrap(delegate, registry);\n");
                 writer.write("    }\n\n");
             }
             writer.write("}\n");
@@ -375,19 +497,27 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
 
     private void writeMethod(Writer writer, MethodModel method) throws IOException {
         ExecutableElement executableElement = method.element();
+        ExecutableType type = method.type();
+        String methodTypeParameters = typeParameterDeclarations(executableElement.getTypeParameters());
         writer.write("    @Override\n");
-        writer.write("    public " + executableElement.getReturnType() + " " + executableElement.getSimpleName() + "(");
+        writer.write("    public " + (methodTypeParameters.isEmpty() ? "" : methodTypeParameters + " ")
+                + type.getReturnType() + " " + executableElement.getSimpleName() + "(");
 
         List<? extends VariableElement> parameters = executableElement.getParameters();
+        List<? extends TypeMirror> parameterTypes = type.getParameterTypes();
         for (int i = 0; i < parameters.size(); i++) {
             VariableElement parameter = parameters.get(i);
             if (i > 0) {
                 writer.write(", ");
             }
-            writer.write(parameter.asType() + " " + parameter.getSimpleName());
+            String parameterType = parameterTypes.get(i).toString();
+            if (executableElement.isVarArgs() && i == parameters.size() - 1 && parameterType.endsWith("[]")) {
+                parameterType = parameterType.substring(0, parameterType.length() - 2) + "...";
+            }
+            writer.write(parameterType + " " + parameter.getSimpleName());
         }
         writer.write(")");
-        List<? extends javax.lang.model.type.TypeMirror> thrownTypes = executableElement.getThrownTypes();
+        List<? extends TypeMirror> thrownTypes = type.getThrownTypes();
         if (!thrownTypes.isEmpty()) {
             writer.write(" throws ");
             for (int i = 0; i < thrownTypes.size(); i++) {
@@ -399,9 +529,10 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         }
         writer.write(" {\n");
 
+        boolean isVoid = type.getReturnType().getKind() == TypeKind.VOID;
         String invocation = "this.delegate." + executableElement.getSimpleName() + "(" + joinParameterNames(parameters) + ")";
         if (method.excluded()) {
-            if (isVoid(executableElement)) {
+            if (isVoid) {
                 writer.write("        " + invocation + ";\n");
             } else {
                 writer.write("        return " + invocation + ";\n");
@@ -412,7 +543,12 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
 
         if (method.asyncCapable()) {
             writer.write("        if (this.method" + method.managedIndex() + ".executionMode() == ExecutionMode.ASYNC) {\n");
-            writer.write("            this.registry.enqueueAsync(this.method" + method.managedIndex() + ", " + asyncArgumentsArray(parameters) + ");\n");
+            String contextArgument = method.idempotencyParameterIndex() < 0
+                    ? ""
+                    : ", AsyncInvocationContext.ofNullable("
+                            + parameters.get(method.idempotencyParameterIndex()).getSimpleName() + ")";
+            writer.write("            this.registry.enqueueAsync(this.method" + method.managedIndex() + ", "
+                    + asyncArgumentsArray(parameters) + contextArgument + ");\n");
             writer.write("            return;\n");
             writer.write("        }\n");
         }
@@ -420,27 +556,84 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         writer.write("        if (!this.method" + method.managedIndex() + ".tryAcquire()) {\n");
         writer.write("            throw this.method" + method.managedIndex() + ".unavailableException();\n");
         writer.write("        }\n");
+        writer.write("        final long aslStartedNanos = this.method" + method.managedIndex() + ".startTiming();\n");
         writer.write("        try {\n");
-        if (isVoid(executableElement)) {
+        if (isVoid) {
             writer.write("            " + invocation + ";\n");
             writer.write("            this.method" + method.managedIndex() + ".onSuccess();\n");
         } else {
-            writer.write("            " + executableElement.getReturnType() + " result = " + invocation + ";\n");
+            writer.write("            " + type.getReturnType() + " result = " + invocation + ";\n");
             writer.write("            this.method" + method.managedIndex() + ".onSuccess();\n");
             writer.write("            return result;\n");
         }
         writer.write("        } catch (Throwable throwable) {\n");
         writer.write("            this.method" + method.managedIndex() + ".onError(throwable);\n");
-        if (isVoid(executableElement)) {
+        if (isVoid) {
             writer.write("            Throwables.sneakyThrow(throwable);\n");
             writer.write("            return;\n");
         } else {
             writer.write("            return Throwables.sneakyThrow(throwable);\n");
         }
         writer.write("        } finally {\n");
-        writer.write("            this.method" + method.managedIndex() + ".release();\n");
+        writer.write("            this.method" + method.managedIndex() + ".release(aslStartedNanos);\n");
         writer.write("        }\n");
         writer.write("    }\n\n");
+    }
+
+    /** Flattened, collision-free base name: {@code Outer.Inner} becomes {@code Outer_Inner}. */
+    static String generatedBaseName(TypeElement typeElement) {
+        StringBuilder builder = new StringBuilder(typeElement.getSimpleName());
+        Element enclosing = typeElement.getEnclosingElement();
+        while (enclosing instanceof TypeElement outer) {
+            builder.insert(0, outer.getSimpleName() + "_");
+            enclosing = outer.getEnclosingElement();
+        }
+        return builder.toString();
+    }
+
+    private String factoryQualifiedName(TypeElement governedType) {
+        String packageName = packageName(governedType);
+        String factoryName = generatedBaseName(governedType) + "Asl";
+        return packageName.isBlank() ? factoryName : packageName + "." + factoryName;
+    }
+
+    private static String typeParameterDeclarations(List<? extends TypeParameterElement> typeParameters) {
+        if (typeParameters.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder("<");
+        for (int i = 0; i < typeParameters.size(); i++) {
+            TypeParameterElement parameter = typeParameters.get(i);
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(parameter.getSimpleName());
+            List<String> bounds = new ArrayList<>();
+            for (TypeMirror bound : parameter.getBounds()) {
+                String text = bound.toString();
+                if (!"java.lang.Object".equals(text)) {
+                    bounds.add(text);
+                }
+            }
+            if (!bounds.isEmpty()) {
+                builder.append(" extends ").append(String.join(" & ", bounds));
+            }
+        }
+        return builder.append('>').toString();
+    }
+
+    private static String typeArguments(List<? extends TypeParameterElement> typeParameters) {
+        if (typeParameters.isEmpty()) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder("<");
+        for (int i = 0; i < typeParameters.size(); i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(typeParameters.get(i).getSimpleName());
+        }
+        return builder.append('>').toString();
     }
 
     private static String joinParameterNames(List<? extends VariableElement> parameters) {
@@ -469,16 +662,36 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         return builder.toString();
     }
 
-    private static String bindingArguments(ExecutableElement executableElement) {
-        List<? extends VariableElement> parameters = executableElement.getParameters();
+    private String bindingArguments(MethodModel method) {
+        List<? extends TypeMirror> parameterTypes = method.type().getParameterTypes();
         StringBuilder builder = new StringBuilder();
-        for (int i = 0; i < parameters.size(); i++) {
+        for (int i = 0; i < parameterTypes.size(); i++) {
             if (i > 0) {
                 builder.append(", ");
             }
-            builder.append(castArgument(parameters.get(i).asType(), i));
+            // Erased casts: method and interface type variables are not in scope in the binding lambda.
+            TypeMirror parameterType = parameterTypes.get(i);
+            builder.append(castArgument(
+                    parameterType.getKind().isPrimitive() ? parameterType : processingEnv.getTypeUtils().erasure(parameterType),
+                    i
+            ));
         }
         return builder.toString();
+    }
+
+    private String erasedParameterClasses(MethodModel method) {
+        List<? extends TypeMirror> parameterTypes = method.type().getParameterTypes();
+        if (parameterTypes.isEmpty()) {
+            return "new java.lang.Class<?>[0]";
+        }
+        StringBuilder builder = new StringBuilder("new java.lang.Class<?>[] { ");
+        for (int i = 0; i < parameterTypes.size(); i++) {
+            if (i > 0) {
+                builder.append(", ");
+            }
+            builder.append(processingEnv.getTypeUtils().erasure(parameterTypes.get(i))).append(".class");
+        }
+        return builder.append(" }").toString();
     }
 
     private static String castArgument(TypeMirror typeMirror, int index) {
@@ -496,10 +709,6 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         };
     }
 
-    private static boolean isVoid(ExecutableElement executableElement) {
-        return "void".equals(executableElement.getReturnType().toString());
-    }
-
     private boolean hasSpringStereotype(TypeElement typeElement) {
         return typeElement.getAnnotationMirrors().stream()
                 .map(annotationMirror -> annotationMirror.getAnnotationType().toString())
@@ -509,7 +718,9 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
     private List<TypeElement> findGovernedInterfaces(TypeElement implementationType, List<TypeElement> governedTypes) {
         List<TypeElement> matched = new ArrayList<>();
         for (TypeElement governedType : governedTypes) {
-            if (processingEnv.getTypeUtils().isAssignable(implementationType.asType(), governedType.asType())) {
+            if (processingEnv.getTypeUtils().isAssignable(
+                    processingEnv.getTypeUtils().erasure(implementationType.asType()),
+                    processingEnv.getTypeUtils().erasure(governedType.asType()))) {
                 matched.add(governedType);
             }
         }
@@ -521,15 +732,15 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         return packageElement.isUnnamed() ? "" : packageElement.getQualifiedName().toString();
     }
 
-    private String methodSignature(ExecutableElement executableElement) {
+    private String methodSignature(ExecutableElement executableElement, ExecutableType resolved) {
         StringBuilder builder = new StringBuilder();
         builder.append(executableElement.getSimpleName()).append('(');
-        List<? extends VariableElement> parameters = executableElement.getParameters();
-        for (int i = 0; i < parameters.size(); i++) {
+        List<? extends TypeMirror> parameterTypes = resolved.getParameterTypes();
+        for (int i = 0; i < parameterTypes.size(); i++) {
             if (i > 0) {
                 builder.append(',');
             }
-            builder.append(parameters.get(i).asType());
+            builder.append(parameterTypes.get(i));
         }
         builder.append(')');
         return builder.toString();
@@ -578,6 +789,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
 
     private record MethodModel(
             ExecutableElement element,
+            ExecutableType type,
             boolean excluded,
             String methodId,
             String methodName,
@@ -586,6 +798,7 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             int initialMaxConcurrency,
             boolean asyncCapable,
             int initialConsumerThreads,
+            int idempotencyParameterIndex,
             int managedIndex
     ) {
     }

@@ -1,0 +1,25 @@
+{
+  "maxAllocationBytesPerOperation": 0.5,
+  "requireAllocationMetric": false,
+  "successPaths": {
+    "excluded": {
+      "maxAdditionalNanos": 50.0
+    },
+    "governedUnlimited": {
+      "maxAdditionalNanos": 1000.0
+    },
+    "governedBounded": {
+      "maxAdditionalNanos": 2000.0
+    }
+  },
+  "diagnosticPaths": {
+    "governedException": {
+      "maxNanos": 5000.0,
+      "maxAllocationBytesPerOperation": 1024.0
+    },
+    "governedRejected": {
+      "maxNanos": 20000.0,
+      "maxAllocationBytesPerOperation": 4096.0
+    }
+  }
+}

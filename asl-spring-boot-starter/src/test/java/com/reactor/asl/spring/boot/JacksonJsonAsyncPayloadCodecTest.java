@@ -7,6 +7,7 @@ import com.reactor.asl.core.AsyncPayloadCodecException;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -15,7 +16,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JacksonJsonAsyncPayloadCodecTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final JacksonJsonAsyncPayloadCodec codec = new JacksonJsonAsyncPayloadCodec(objectMapper);
+    private final JacksonJsonAsyncPayloadCodec codec = new JacksonJsonAsyncPayloadCodec(
+            objectMapper,
+            Thread.currentThread().getContextClassLoader(),
+            JacksonAsyncPayloadSchemaRegistry.empty(),
+            new AllowlistedJacksonAsyncPayloadTypePolicy(Set.of(SamplePayload.class.getName()), Set.of())
+    );
 
     @Test
     void encodesAndDecodesNonSerializablePayloads() {
@@ -145,6 +151,22 @@ class JacksonJsonAsyncPayloadCodecTest {
         );
 
         assertTrue(exception.getMessage().contains("Duplicate schema typeId"));
+    }
+
+    @Test
+    void rejectsUnregisteredTypesOutsideTheAllowlist() {
+        JacksonJsonAsyncPayloadCodec secureCodec = new JacksonJsonAsyncPayloadCodec(objectMapper);
+
+        AsyncPayloadCodecException exception = assertThrows(
+                AsyncPayloadCodecException.class,
+                () -> secureCodec.encode(
+                        "demo.service",
+                        "publish(sample)",
+                        new Object[]{new SamplePayload("evt", "secret")}
+                )
+        );
+
+        assertTrue(exception.getMessage().contains("allowlisted"));
     }
 
     private record SamplePayload(String id, String message) {

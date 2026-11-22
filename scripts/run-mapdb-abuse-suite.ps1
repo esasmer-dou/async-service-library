@@ -8,6 +8,9 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "java-tooling.ps1")
+$javaTooling = Initialize-AslJavaTooling
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sampleModuleDir = Join-Path $repoRoot "asl-consumer-sample"
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
@@ -37,7 +40,7 @@ function Build-SampleJar {
     Write-Host "Building sample jar..."
     Push-Location $repoRoot
     try {
-        Invoke-CheckedCommand "mvn" @("-pl", "asl-consumer-sample", "-am", "package", "-DskipTests", "-q")
+        Invoke-CheckedCommand $javaTooling.MavenCommand @("-pl", "asl-consumer-sample", "-am", "package", "-DskipTests", "-q")
     } finally {
         Pop-Location
     }
@@ -115,7 +118,7 @@ function Start-Sample([string]$jarPath, [string]$dbPath, [string]$scenarioName) 
         "--asl.async.mapdb.enabled=true",
         "--asl.async.mapdb.path=$($dbPath -replace '\\','/')"
     )
-    $process = Start-Process -FilePath "java" -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    $process = Start-Process -FilePath $javaTooling.JavaCommand -ArgumentList $arguments -WorkingDirectory $repoRoot -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
     $baseUrl = "http://localhost:$port"
     try {
         Wait-Until {

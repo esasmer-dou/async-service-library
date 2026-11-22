@@ -10,6 +10,10 @@
     </parent>
 
     <artifactId>asl-processor</artifactId>
+
+    <properties>
+        <jacoco.line.minimum>0.70</jacoco.line.minimum>
+    </properties>
     <name>asl-processor</name>
 
     <dependencies>
@@ -22,6 +26,11 @@
             <groupId>com.reactor.asl</groupId>
             <artifactId>asl-core</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

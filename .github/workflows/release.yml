@@ -41,10 +41,10 @@ jobs:
           echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
           mvn -B -ntp versions:set -DnewVersion="$VERSION" -DgenerateBackupPoms=false
 
-      - name: Build and deploy
+      - name: Build, generate SBOM, and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: mvn -B -ntp -Ppublic-release deploy
+        run: mvn -B -ntp -Ppublic-release,sbom deploy
 
       - name: Create Source Archive
         shell: bash
@@ -57,24 +57,30 @@ jobs:
           cat > .github/release-notes.generated.md <<EOF
           # Async Service Library v${RELEASE_VERSION}
           
-          This release publishes the current public package and release line for Async Service Library.
+          This release publishes the production-hardening refactor of Async Service Library.
           
           Included in this version:
           
-          - compile-time governed service wrappers
-          - Spring Boot starter and admin control plane
-          - MapDB-backed async execution for \`void\` methods
-          - runtime concurrency, stop/start, replay, delete, and clear controls
-          - English and Turkish usage documentation
+          - allocation-conscious compile-time governed service wrappers
+          - independent core, MapDB, and admin Spring Boot starters plus the compatibility starter
+          - opt-in, fail-closed admin control plane with access-policy and audit extension points
+          - bounded MapDB async execution with FIFO indexes, group commit, leases, retries, and idempotency keys
+          - versioned payload codecs with allowlists, migration hooks, redaction, and size limits
+          - Micrometer metrics, JVM/OS CI coverage, API compatibility checks, and CycloneDX SBOMs
+          - complete English and Turkish configuration and usage documentation
           
           Current boundary:
           
           - runtime \`SYNC -> ASYNC\` switching is supported for \`void\` methods only
+          - MapDB is a single-process local queue; sharing one store between replicas is unsupported
+          - delivery is at-least-once, so external business side effects must remain idempotent
+          - production admin access requires a host-provided \`AslAdminAccessPolicy\`
           
           Start here:
           
           - README: https://github.com/esasmer-dou/async-service-library
           - usage guide: https://github.com/esasmer-dou/async-service-library/blob/main/USAGE_GUIDE.md
+          - configuration reference: https://github.com/esasmer-dou/async-service-library/blob/main/CONFIGURATION_REFERENCE.md
           - sample app: https://github.com/esasmer-dou/async-service-library/tree/main/asl-consumer-sample
           EOF
 
@@ -88,4 +94,9 @@ jobs:
             asl-core/target/*.jar
             asl-mapdb/target/*.jar
             asl-processor/target/*.jar
+            asl-spring-boot-core-starter/target/*.jar
+            asl-spring-boot-mapdb-starter/target/*.jar
+            asl-spring-boot-admin-starter/target/*.jar
             asl-spring-boot-starter/target/*.jar
+            target/bom.json
+            target/bom.xml

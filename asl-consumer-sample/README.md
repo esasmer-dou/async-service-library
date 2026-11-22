@@ -1,5 +1,7 @@
 # ASL Consumer Sample
 
+[English](README.md) | [Turkish](../tr/asl-consumer-sample/README.md)
+
 This is a runnable Spring Boot sample that uses ASL in the service layer.
 
 ## What It Demonstrates
@@ -37,7 +39,11 @@ asl:
     default-unavailable-message: Method is disabled
     max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
   admin:
+    enabled: true
     buffer-preview-limit: 50
+    security:
+      # Demo only. Production applications must provide an AslAdminAccessPolicy.
+      allow-unauthenticated: true
     dashboard:
       attention-limit: 8
       medium-utilization-percent: 40
@@ -56,10 +62,14 @@ asl:
       recovered-in-progress-message: Recovered stale in-progress invocation after restart
       transactions-enabled: true
       memory-mapped-enabled: false
-      reset-if-corrupt: true
+      corruption-policy: ARCHIVE_AND_RESET
+      admission:
+        max-concurrent-enqueues: 64
 ```
 
-This sample config is intentionally verbose so users can see which runtime defaults are now overridable without code changes.
+This sample exposes only the settings needed to make the demo behavior explicit. Every supported property, its exact default, and the behavior when omitted are listed in [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md).
+
+`allow-unauthenticated: true` is intentionally limited to this local demo. Production applications should leave it `false` and provide an `AslAdminAccessPolicy`; otherwise the admin surface fails closed.
 
 ## Control Plane Workflow
 
@@ -299,9 +309,10 @@ Manual walkthrough:
 - Mail storage is in-memory
 - Async queue storage is MapDB-backed on `./data/asl-consumer-sample-queue.db`
 - The sample keeps MapDB in safety-first mode: `transactions-enabled=true` and `memory-mapped-enabled=false`
-- The sample enables `asl.async.mapdb.reset-if-corrupt=true`, so a corrupted demo queue file is archived and replaced automatically on startup
-- On startup, header-corrupted queue files are moved aside as `*.corrupt-*`; if the file cannot be moved cleanly, the application falls back to a fresh recovery queue file
-- When startup recovery happens, the admin UI shows an operational banner with the recovery status, the archived or recovery file path, and the active queue store path
+- The sample uses `corruption-policy=ARCHIVE_AND_RESET`: confirmed header-corrupted files are archived as `*.corrupt-*` before a fresh store is created
+- Lock, permission, disk, and generic I/O failures are never treated as corruption. Startup fails rather than silently switching stores
+- If a damaged store cannot be archived cleanly, startup fails. ASL does not hide the damaged store behind a fallback queue path
+- When startup recovery succeeds, the admin UI shows an operational banner with the archive path and active store path
 - If you want a fully clean manual reset, delete `./data/asl-consumer-sample-queue.db` before starting the sample
 - The sample uses the built-in Jackson async payload codec
 - This project is for trying the library, not for production business persistence

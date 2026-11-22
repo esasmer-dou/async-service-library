@@ -1,5 +1,7 @@
 # ASL Consumer Sample
 
+[English](../../asl-consumer-sample/README.md) | [Türkçe](README.md)
+
 Bu doküman, `asl-consumer-sample` uygulamasını Türkçe olarak açıklar. Sample uygulama, ASL’nin Spring Boot içinde nasıl davrandığını canlı olarak görmek, admin arayüzünü denemek ve async kuyruk senaryolarını test etmek için hazırlanmıştır.
 
 ## Amaç
@@ -39,7 +41,11 @@ asl:
     default-unavailable-message: Method is disabled
     max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
   admin:
+    enabled: true
     buffer-preview-limit: 50
+    security:
+      # Yalnızca yerel demo içindir. Production uygulaması AslAdminAccessPolicy sağlamalıdır.
+      allow-unauthenticated: true
     dashboard:
       attention-limit: 8
       medium-utilization-percent: 40
@@ -58,10 +64,14 @@ asl:
       recovered-in-progress-message: Recovered stale in-progress invocation after restart
       transactions-enabled: true
       memory-mapped-enabled: false
-      reset-if-corrupt: true
+      corruption-policy: ARCHIVE_AND_RESET
+      admission:
+        max-concurrent-enqueues: 64
 ```
 
-Bu ayarlar zorunlu değildir. Sample’da özellikle görünür bırakılmalarının nedeni, hangi davranışların kullanıcı tarafından override edilebildiğini net göstermektir.
+Sample yalnızca demo davranışını açık kılmak için gerekli ayarları gösterir. Desteklenen bütün property’ler, kesin varsayılan değerleri ve verilmediklerinde oluşacak davranış [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md) içinde açıklanmıştır.
+
+`allow-unauthenticated: true` yalnızca bu yerel demo için bilerek açılmıştır. Production uygulamasında bu değer `false` bırakılmalı ve bir `AslAdminAccessPolicy` bean’i sağlanmalıdır; aksi durumda admin yüzeyi güvenli biçimde açılmaz.
 
 ## Kontrol Paneli Akışı
 
@@ -299,8 +309,10 @@ Manuel senaryolar:
 - Mail storage bellek içindedir; production persistence örneği değildir.
 - Async queue MapDB ile `./data/asl-consumer-sample-queue.db` dosyasına yazılır.
 - Sample güvenlik öncelikli MapDB ayarlarıyla gelir: `transactions-enabled=true`, `memory-mapped-enabled=false`.
-- Sample’da `asl.async.mapdb.reset-if-corrupt=true` açıktır; bozuk demo queue dosyası açılışta arşivlenir veya recovery queue dosyasına geçilir.
-- Startup sırasında recovery yapılırsa admin arayüzünde operasyonel banner görünür.
+- Sample `corruption-policy=ARCHIVE_AND_RESET` kullanır. Yalnızca kesin olarak doğrulanmış header bozulmalarında dosya `*.corrupt-*` adıyla arşivlenir ve ardından temiz store oluşturulur.
+- Dosya kilidi, yetki, disk ve genel I/O hataları corruption sayılmaz. Sistem başka bir queue dosyasına sessizce geçmek yerine açılışı durdurur.
+- Bozuk store güvenli biçimde arşivlenemiyorsa startup başarısız olur; veri kaybını gizleyen bir fallback queue yolu kullanılmaz.
+- Recovery başarıyla tamamlanırsa admin arayüzü arşivlenen ve aktif store yollarını operasyonel banner üzerinde gösterir.
 - Tamamen temiz manuel başlangıç için uygulamayı başlatmadan önce `./data/asl-consumer-sample-queue.db` dosyasını silebilirsin.
 - Sample built-in Jackson async payload codec kullanır.
 - Bu uygulama kütüphaneyi denemek içindir; production business persistence örneği olarak tasarlanmamıştır.
