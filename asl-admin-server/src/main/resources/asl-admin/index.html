@@ -234,6 +234,44 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
 .empty h6 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
 .skeleton { height: 18px; border-radius: 8px; background: rgb(var(--grey-ch) / .16); animation: shimmer 1.4s ease-in-out infinite; }
 @keyframes shimmer { 50% { opacity: .5; } }
+/* ---- filters ---- */
+.nav-search { position: relative; margin: 0 0 8px; }
+.nav-search input { width: 100%; height: 40px; padding: 0 12px 0 38px; border: 1px solid rgb(var(--grey-ch) / .2); border-radius: 8px; background: var(--paper); outline: none; }
+.nav-search input:hover, .nav-search input:focus { border-color: var(--text); }
+.nav-search svg.i { position: absolute; left: 12px; top: 11px; width: 18px; height: 18px; color: var(--text-3); pointer-events: none; }
+.nav-filter { display: flex; gap: 6px; margin: 0 0 8px; }
+.nav-filter .chip { height: 28px; padding: 0 10px; font-size: 12px; }
+.nav-count { padding: 0 12px 6px; font-size: 12px; color: var(--text-3); }
+.toolbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 24px 24px 0; }
+.toolbar .field { flex: 1 1 200px; max-width: 280px; }
+.toolbar .field.search { flex: 2 1 280px; max-width: 420px; }
+.toolbar .field input, .toolbar .field select { height: 44px; }
+.toolbar .field.search input { padding-left: 42px; }
+.toolbar .field.search svg.i { position: absolute; left: 13px; top: 12px; color: var(--text-3); pointer-events: none; }
+.toolbar .reset { margin-left: auto; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 24px 0; }
+.chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid rgb(var(--grey-ch) / .24);
+  background: none; color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.chip:hover { background: var(--hover); color: var(--text); }
+.chip.on { background: var(--inherit-bg); color: var(--inherit-fg); border-color: transparent; }
+.chip .n { font-size: 12px; font-weight: 700; opacity: .64; }
+.chip.on .n { opacity: .8; }
+.result-note { padding: 12px 24px 0; font-size: 13px; color: var(--text-2); }
+.result-note b { color: var(--text); }
+button.link { border: 0; padding: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+button.link:hover { color: var(--primary); text-decoration: underline; }
+.label.click { cursor: pointer; border: 0; font-family: inherit; }
+.label.click:hover { filter: brightness(.92); }
+
+/* ---- queue dialog ---- */
+.dialog.lg { max-width: 1040px; }
+.dialog .d-body.flush { padding: 0; color: var(--text); }
+.q-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 0 24px 16px; color: var(--text-2); font-size: 13px; }
+.q-wrap { overflow-x: auto; border-top: 1px dashed var(--divider); }
+.q-wrap .tbl { min-width: 760px; }
+.q-err { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgb(var(--grey-ch) / .32); border-top-color: var(--primary); animation: spin .8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -244,6 +282,9 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
     <div class="nav-sub">Overview</div>
     <button class="nav-item" id="nav-audit" type="button"></button>
     <div class="nav-sub">Applications</div>
+    <div class="nav-search" id="app-search"><input id="app-filter" type="search" placeholder="Search applications" aria-label="Search applications" autocomplete="off"></div>
+    <div class="nav-filter" id="app-scope"></div>
+    <div class="nav-count" id="app-count"></div>
     <div id="apps"><div class="nav-empty">Loading…</div></div>
   </nav>
   <div class="server-card" id="server"></div>
@@ -267,8 +308,10 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
   const ENABLED = 1, ASYNC = 2;
   const api = "/asl-admin/api";
   const SVG = "http://www.w3.org/2000/svg";
-  let selected = null, view = "apps", timer = null, dialogOpen = false, lastApp = null;
-  const expanded = new Set(), historyCache = new Map();
+  let selected = null, view = "apps", timer = null, dialogOpen = false, lastApp = null, page = null;
+  let appList = [], appScope = "all";
+  const expanded = new Set(), historyCache = new Map(), filters = new Map();
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
   const $ = id => document.getElementById(id);
 
   // ---- small DOM helpers ----
@@ -306,6 +349,8 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
     reset: "M4 12a8 8 0 0 1 13.7-5.7M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.7 5.7M4 20v-4.5h4.5",
     close: "M6 6l12 12M18 6 6 18",
     sync: "M12 4v4M12 16v4M4 12h4M16 12h4",
+    search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4",
+    filter: "M4 5h16l-6 7.5V19l-4 1v-7.5z",
   };
   function icon(name) {
     const svg = document.createElementNS(SVG, "svg");
@@ -347,15 +392,23 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
     bar.classList.add("show");
     clearTimeout(toast.t); toast.t = setTimeout(() => bar.classList.remove("show"), 3500);
   }
-  function openDialog(title, subtitle, body, actions, small) {
+  // size: true for the small confirm dialog, "lg" for wide tables. onClose runs however the dialog closes.
+  function openDialog(title, subtitle, body, actions, size, onClose) {
     const backdrop = el("div", { class: "backdrop" });
-    const close = () => { backdrop.remove(); dialogOpen = false; document.removeEventListener("keydown", onKey); };
-    const onKey = e => { if (e.key === "Escape") close(); };
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true; backdrop.remove(); document.removeEventListener("keydown", onKey);
+      dialogOpen = document.querySelectorAll(".backdrop").length > 0;
+      if (onClose) onClose();
+      if (!dialogOpen && lastApp && view === "apps") render(lastApp);
+    };
+    const onKey = e => { const open = document.querySelectorAll(".backdrop"); if (e.key === "Escape" && open[open.length - 1] === backdrop) close(); };
     backdrop.addEventListener("mousedown", e => { if (e.target === backdrop) close(); });
     document.addEventListener("keydown", onKey);
-    const dialog = el("div", { class: "dialog" + (small ? " sm" : ""), role: "dialog", "aria-modal": "true" },
+    const dialog = el("div", { class: "dialog" + (size === "lg" ? " lg" : size ? " sm" : ""), role: "dialog", "aria-modal": "true" },
       el("div", { class: "d-title" }, title, subtitle ? el("small", {}, subtitle) : null),
-      body ? el("div", { class: "d-body" }, body) : null,
+      body ? el("div", { class: "d-body" + (size === "lg" ? " flush" : "") }, body) : null,
       el("div", { class: "d-actions" }, actions(close)));
     backdrop.append(dialog);
     document.body.append(backdrop);
@@ -385,10 +438,10 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
   }
 
   // ---- derived values, all computed here; the server only relays ----
-  function totals(app, i) {
+  function totals(instances, i) {
     const t = { instances: 0, enabled: 0, async: 0, inFlight: 0, success: 0, error: 0, rejected: 0, pending: 0, failed: 0, running: 0, divergent: false };
     let first = null;
-    for (const inst of app.instances) {
+    for (const inst of instances) {
       const s = inst.samples[i];
       if (!s) continue;
       t.instances++; t.enabled += s[STATE] & ENABLED ? 1 : 0; t.async += s[STATE] & ASYNC ? 1 : 0;
@@ -472,16 +525,28 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
         row("Storage", `${s.storageMode} · ${fmt(s.storeBytes)}B`), row("History", `${s.historySeries} × ${s.historyPointsPerSeries}`));
     } catch (_) {}
   }
+  const hasIssue = a => a.configErrors > 0 || a.queueFailed > 0 || a.outOfSync > 0;
   async function loadApps() {
-    let apps = [];
-    try { apps = await call("GET", "/apps"); } catch (e) { toast(e.message, "error"); }
+    try { appList = await call("GET", "/apps"); } catch (e) { toast(e.message, "error"); }
+    renderApps();
+  }
+  $("app-search").prepend(icon("search"));
+  $("app-filter").addEventListener("input", () => renderApps());
+  function renderApps() {
+    const q = $("app-filter").value.trim().toLowerCase(), issues = appList.filter(hasIssue).length;
+    const scopeChip = (key, text, n) => el("button", { class: "chip" + (appScope === key ? " on" : ""), type: "button",
+      onclick: () => { appScope = key; renderApps(); } }, text, el("span", { class: "n" }, n));
+    $("app-scope").replaceChildren(scopeChip("all", "All", appList.length), scopeChip("issues", "Needs attention", issues));
+    const apps = appList.filter(a => (!q || a.name.toLowerCase().includes(q)) && (appScope === "all" || hasIssue(a)));
+    $("app-count").textContent = apps.length === appList.length ? "" : `${apps.length} of ${appList.length} applications`;
     $("apps").replaceChildren(...apps.map(a => el("button", {
         class: "nav-item" + (view === "apps" && a.name === selected ? " active" : ""), type: "button",
         onclick: () => go("#/apps/" + encodeURIComponent(a.name)) },
       icon("box"),
       el("span", { class: "txt" }, el("span", {}, a.name), el("span", { class: "cap" }, `${a.instances} instances · ${a.methods} methods`)),
       a.configErrors ? label(String(a.configErrors), "error", "alert") : a.queueFailed ? label(String(a.queueFailed), "error") : a.outOfSync ? label(String(a.outOfSync), "warning", "sync") : null)));
-    if (!apps.length) $("apps").replaceChildren(el("div", { class: "nav-empty" }, "No application connected yet."));
+    if (!appList.length) $("apps").replaceChildren(el("div", { class: "nav-empty" }, "No application connected yet."));
+    else if (!apps.length) $("apps").replaceChildren(el("div", { class: "nav-empty" }, "No application matches."));
     else if (view === "apps" && !selected && !location.hash) go("#/apps/" + encodeURIComponent(apps[0].name));
     const audit = $("nav-audit");
     audit.className = "nav-item" + (view === "audit" ? " active" : "");
@@ -497,7 +562,7 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
     view = "apps";
     const name = h.startsWith("#/apps/") ? decodeURIComponent(h.substring(7)) : null;
     if (name !== selected) { expanded.clear(); lastApp = null; }
-    selected = name;
+    selected = name; page = null;
     loadApps();
     if (selected) { $("content").replaceChildren(loadingPage(selected)); loadApp(); }
     else { setLive("idle"); $("content").replaceChildren(welcome()); }
@@ -530,8 +595,8 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
       if (!dialogOpen) render(app);
     } catch (e) {
       setLive("error");
-      if (!lastApp) $("content").replaceChildren(pageHead(name, ["ASL Admin", "Applications", name]),
-        el("div", { class: "card" }, empty("alert", "error", "Application not available", e.message)));
+      if (!lastApp) { page = null; $("content").replaceChildren(pageHead(name, ["ASL Admin", "Applications", name]),
+        el("div", { class: "card" }, empty("alert", "error", "Application not available", e.message))); }
     }
     timer = setTimeout(loadApp, 2000);
   }
@@ -548,30 +613,110 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
   const table = (cls, head, rows) => el("table", { class: "tbl " + (cls || "") },
     el("thead", {}, el("tr", {}, head.map(h => el("th", { class: h.startsWith("#") ? "num" : "" }, h.replace(/^#/, ""))))), el("tbody", {}, rows));
 
+  // ---- filters, kept per application while the portal is open ----
+  const STATUS = [
+    ["all", "All", () => true],
+    ["stopped", "Stopped", (m, t) => t.instances > 0 && t.enabled < t.instances],
+    ["async", "Async", (m, t) => t.async > 0],
+    ["queued", "Queue not empty", (m, t) => t.pending + t.running + t.failed > 0],
+    ["failed", "Failed entries", (m, t) => t.failed > 0],
+    ["errors", "Errors or rejects", (m, t) => t.error + t.rejected > 0],
+    ["override", "Overridden", (m, t, app, idx) => !!m.override || app.instances.some(i => i.overrides[idx])],
+    ["differ", "Replicas differ", (m, t) => t.divergent],
+  ];
+  function filterOf(name) {
+    if (!filters.has(name)) filters.set(name, { q: "", service: "", replica: "", status: "all" });
+    return filters.get(name);
+  }
+  const matches = (m, q) => !q || (m.serviceId + " " + m.methodId).toLowerCase().includes(q);
+  const activeFilter = f => !!(f.q.trim() || f.service || f.replica || f.status !== "all");
+
+  // The page frame is built once per application, so the search box keeps focus while the 2 s refresh redraws the tables.
+  function buildPage(app) {
+    const f = filterOf(app.name);
+    const search = el("input", { type: "search", id: "flt-q", placeholder: "Service or method name", autocomplete: "off", value: f.q });
+    const service = el("select", { id: "flt-service" }), replica = el("select", { id: "flt-replica" });
+    const redraw = () => { if (lastApp && lastApp.name === app.name) render(lastApp); };
+    search.addEventListener("input", () => { f.q = search.value; redraw(); });
+    service.addEventListener("change", () => { f.service = service.value; redraw(); });
+    replica.addEventListener("change", () => { f.replica = replica.value; redraw(); });
+    const resetBtn = el("button", { class: "btn text reset", type: "button", onclick: () => {
+      Object.assign(f, { q: "", service: "", replica: "", status: "all" }); search.value = ""; redraw(); } }, icon("close"), "Clear filters");
+    const toolbar = el("div", { class: "toolbar" },
+      el("div", { class: "field search" }, el("label", { for: "flt-q" }, "Search"), icon("search"), search),
+      el("div", { class: "field" }, el("label", { for: "flt-service" }, "Service"), service),
+      el("div", { class: "field" }, el("label", { for: "flt-replica" }, "Replica"), replica),
+      resetBtn);
+    const section = (title, sub, ...body) => el("div", { class: "card" },
+      el("div", { class: "card-head" }, el("div", { class: "t" }, el("h6", {}, title), sub ? el("p", {}, sub) : null)), ...body);
+    page = { name: app.name, f, search, service, replica, resetBtn,
+      head: el("div"), widgets: el("div", { class: "widgets" }), chips: el("div", { class: "chips" }), note: el("div", { class: "result-note" }),
+      methods: el("div", { class: "card-table" }), replicas: el("div", { class: "card-table" }), commands: el("div", { class: "card-table" }) };
+    page.root = el("div", {}, page.head, page.widgets,
+      section("Methods", "Totals over the replicas in the filter. Expand a row for each replica and the stored trend.", toolbar, page.chips, page.note, page.methods),
+      section("Replicas", "Each replica opens its own connection; settings reach it with the next heartbeat. Click a name to show only that replica.", page.replicas),
+      section("Recent commands", "Queue operations go to one replica or to all of them and are answered with the next heartbeat.", page.commands));
+    $("content").replaceChildren(page.root);
+  }
+  function fillSelect(select, options, value, allText) {
+    if (value && !options.some(o => o[0] === value)) options = [...options, [value, value + " (not connected)"]];
+    const sig = allText + "|" + options.map(o => o[0] + "=" + o[1]).join("|");
+    if (select.dataset.sig !== sig) {
+      select.replaceChildren(el("option", { value: "" }, allText), ...options.map(o => el("option", { value: o[0] }, o[1])));
+      select.dataset.sig = sig;
+    }
+    select.value = value || "";
+    return select.value;
+  }
+
   function render(app) {
-    const all = app.methods.map((m, i) => totals(app, i));
-    const inSync = app.instances.filter(i => i.inSync && !i.configError).length;
-    const errors = app.instances.filter(i => i.configError).length;
+    if (!page || page.name !== app.name || !page.root.isConnected) buildPage(app);
+    const f = page.f, q = f.q.trim().toLowerCase();
+    const services = [...new Set(app.methods.map(m => m.serviceId))].sort();
+    f.service = fillSelect(page.service, services.map(s => [s, `${s} (${app.methods.filter(m => m.serviceId === s).length})`]), f.service, "All services");
+    f.replica = fillSelect(page.replica, app.instances.map(i => [i.name, i.name]).sort((a, b) => a[0].localeCompare(b[0])), f.replica,
+      `All replicas (${app.instances.length})`);
+    page.resetBtn.style.visibility = activeFilter(f) ? "visible" : "hidden";
+
+    const insts = f.replica ? app.instances.filter(i => i.name === f.replica) : app.instances;
+    const all = app.methods.map((m, i) => totals(insts, i));
+    const base = app.methods.map((m, idx) => idx).filter(idx => matches(app.methods[idx], q) && (!f.service || app.methods[idx].serviceId === f.service));
+    const pass = (key, idx) => STATUS.find(s => s[0] === key)[2](app.methods[idx], all[idx], app, idx);
+    page.chips.replaceChildren(...STATUS.map(([key, text]) => el("button", { class: "chip" + (f.status === key ? " on" : ""), type: "button",
+      onclick: () => { f.status = key; render(app); } }, text, el("span", { class: "n" }, base.filter(idx => pass(key, idx)).length))));
+    const shown = base.filter(idx => pass(f.status, idx));
+    page.note.replaceChildren(el("span", {}, "Showing ", el("b", {}, shown.length), ` of ${app.methods.length} methods`,
+      f.replica ? [" on replica ", el("b", { class: "mono" }, f.replica)] : ` on ${app.instances.length} ${app.instances.length === 1 ? "replica" : "replicas"}`));
+
+    const inSync = insts.filter(i => i.inSync && !i.configError).length, errors = insts.filter(i => i.configError).length;
     const sum = k => all.reduce((a, t) => a + t[k], 0);
     const failed = sum("failed"), pending = sum("pending");
-
-    const widgets = el("div", { class: "widgets" },
-      widget("server", "primary", "Replicas", app.instances.length,
-        errors ? `${errors} with setting errors` : inSync === app.instances.length ? "all settings applied" : `${app.instances.length - inSync} applying settings`),
+    page.head.replaceChildren(pageHead(app.name, ["ASL Admin", "Applications", app.name],
+      el("div", { class: "btn-row" }, f.replica ? label("Replica " + f.replica, "primary", "filter") : null, label(`Heartbeat ${app.intervalMillis / 1000}s`, "info"))));
+    const running = sum("running");
+    const queueWidget = widget("layers", failed ? "error" : "warning", "Queue entries", fmt(pending + failed + running),
+      `${fmt(pending)} pending · ${fmt(running)} running · ${fmt(failed)} failed`);
+    if (failed) { queueWidget.style.cursor = "pointer"; queueWidget.title = "Show the methods with failed entries"; queueWidget.onclick = () => { f.status = "failed"; render(app); }; }
+    page.widgets.replaceChildren(
+      widget("server", "primary", "Replicas", f.replica ? `${insts.length} / ${app.instances.length}` : app.instances.length,
+        errors ? `${errors} with setting errors` : inSync === insts.length ? "all settings applied" : `${insts.length - inSync} applying settings`),
       widget("grid", "info", "Governed methods", app.methods.length, `${app.methods.filter(m => m.asyncCapable).length} async-capable`),
       widget("bolt", "success", "In flight now", fmt(sum("inFlight")), `${fmt(sum("success"))} succeeded · ${fmt(sum("error"))} failed`),
-      widget("layers", failed ? "error" : "warning", "Queue", fmt(pending), failed ? `${fmt(failed)} failed entries` : "pending entries, none failed"));
+      queueWidget);
 
+    const target = f.replica || "*";
     const rows = [];
-    app.methods.forEach((m, idx) => {
-      const key = m.serviceId + "#" + m.methodId, t = all[idx], open = expanded.has(key);
+    for (const idx of shown) {
+      const m = app.methods[idx], key = m.serviceId + "#" + m.methodId, t = all[idx], open = expanded.has(key);
       const toggle = () => { open ? expanded.delete(key) : expanded.add(key); render(app); };
       const chevron = el("button", { class: "icon-btn sm" + (open ? " on" : ""), type: "button", "aria-label": open ? "Collapse" : "Expand", onclick: toggle }, icon("chevron"));
       if (open) chevron.firstChild.style.transform = "rotate(90deg)";
+      const own = f.replica ? (insts[0] && insts[0].overrides[idx]) : null;
       rows.push(el("tr", { class: "row" + (open ? " open" : "") },
         el("td", { style: "width:52px" }, chevron),
         el("td", {}, el("span", { class: "strong" }, short(m.methodId)), el("span", { class: "sub" }, m.serviceId),
           m.override ? label("All: " + describe(m.override), "info", "tune") : null,
+          own ? label("Replica: " + describe(own), "primary", "tune") : null,
           t.divergent ? label("Replicas differ", "warning", "alert") : null),
         el("td", { class: "nowrap" }, label(`${t.enabled}/${t.instances} on`, t.instances && t.enabled === t.instances ? "success" : t.enabled ? "warning" : "error"),
           m.asyncCapable ? label(t.async ? `${t.async} async` : "sync", t.async ? "primary" : "default") : label("sync only", "default")),
@@ -579,42 +724,53 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
         el("td", { class: "num" }, fmt(t.success)),
         el("td", { class: "num" + (t.error ? " err-text" : "") }, fmt(t.error)),
         el("td", { class: "num" }, t.rejected ? label(fmt(t.rejected), "warning") : "0"),
-        el("td", { class: "num nowrap" }, m.hasQueue ? [el("span", {}, fmt(t.pending)), t.failed ? label(fmt(t.failed) + " failed", "error") : null] : el("span", { class: "muted" }, "—")),
+        el("td", { class: "num nowrap" }, m.hasQueue ? [el("span", {}, fmt(t.pending)),
+          t.failed ? el("button", { class: "label click tone-error", type: "button", title: "List the entries", onclick: () => openQueue(app, m, target) }, fmt(t.failed) + " failed") : null]
+          : el("span", { class: "muted" }, "—")),
         el("td", { class: "act" }, el("div", { class: "btn-row" },
-          el("button", { class: "btn sm soft", type: "button", onclick: () => openEditor(app, m, idx, null) }, icon("tune"), "Tune"),
-          m.hasQueue ? el("button", { class: "btn sm soft error", type: "button",
-            onclick: () => command(m, "*", "CLEAR_QUEUE", null, "Clear queue on every replica?", `Removes every queued entry that is not running for ${short(m.methodId)} on all replicas.`) }, icon("trash"), "Clear") : null))));
-      if (open) rows.push(detail(app, m, idx));
-    });
+          el("button", { class: "btn sm soft", type: "button", onclick: () => openEditor(app, m, idx, f.replica || null) }, icon("tune"), "Tune"),
+          m.hasQueue ? el("button", { class: "btn sm soft", type: "button", title: f.replica ? "List entries on " + f.replica : "List entries on every replica",
+            onclick: () => openQueue(app, m, target) }, icon("eye"), "Queue") : null))));
+      if (open) rows.push(detail(app, m, idx, insts));
+    }
+    page.methods.replaceChildren(!app.methods.length ? empty("grid", "info", "No governed methods", "This application registered no governed methods.")
+      : rows.length ? table("", ["", "Method", "State", "#In flight", "#Success", "#Errors", "#Rejected", "#Queue", ""], rows)
+      : empty("search", "default", "No method matches", "Change the search, the service, the replica or the status filter."));
 
-    const instances = table("", ["Replica", "Last seen", "Uptime", "Settings", "#Open commands"], app.instances.map(i => el("tr", { class: "row" },
-      el("td", {}, el("span", { class: "mono strong" }, i.name), el("span", { class: "sub" }, i.libraryVersion ? "ASL " + i.libraryVersion : "")),
-      el("td", {}, ago(i.lastSeenMillisAgo)), el("td", {}, ago(i.uptimeMillis)),
-      el("td", {}, i.configError ? label(i.configError, "error", "alert") : i.inSync ? label("In sync", "success", "check") : label("Applying…", "warning", "sync")),
-      el("td", { class: "num" }, i.pendingCommands))));
+    const perReplica = i => i.samples.reduce((a, s) => { if (s) { a.off += s[STATE] & ENABLED ? 0 : 1; a.failed += s[Q_FAILED]; a.pending += s[Q_PENDING]; a.inFlight += s[IN_FLIGHT]; } return a; },
+      { off: 0, failed: 0, pending: 0, inFlight: 0 });
+    page.replicas.replaceChildren(table("", ["Replica", "Last seen", "Uptime", "Settings", "#In flight", "#Stopped methods", "#Queue pending / failed", "#Open commands"],
+      insts.map(i => {
+        const r = perReplica(i);
+        return el("tr", { class: "row" },
+          el("td", {}, el("button", { class: "link mono strong", type: "button", title: f.replica ? "Show all replicas" : "Show only this replica",
+              onclick: () => { f.replica = f.replica === i.name ? "" : i.name; render(app); } }, i.name),
+            el("span", { class: "sub" }, i.libraryVersion ? "ASL " + i.libraryVersion : "")),
+          el("td", {}, ago(i.lastSeenMillisAgo)), el("td", {}, ago(i.uptimeMillis)),
+          el("td", {}, i.configError ? label(i.configError, "error", "alert") : i.inSync ? label("In sync", "success", "check") : label("Applying…", "warning", "sync")),
+          el("td", { class: "num" }, fmt(r.inFlight)),
+          el("td", { class: "num" }, r.off ? label(String(r.off), "warning") : "0"),
+          el("td", { class: "num nowrap" }, `${fmt(r.pending)} / `, r.failed ? label(fmt(r.failed), "error") : "0"),
+          el("td", { class: "num" }, i.pendingCommands));
+      })));
 
-    const commands = app.commands.slice(0, 20).map(c => el("tr", { class: "row" },
+    const cmds = app.commands.filter(c => (!f.replica || c.instance === f.replica) && (!f.service || c.serviceId === f.service) && matches(c, q)).slice(0, 20);
+    page.commands.replaceChildren(cmds.length ? table("", ["Command", "Replica", "Method", "Status", "Result", "By", "Done"], cmds.map(c => el("tr", { class: "row" },
       el("td", {}, label(c.type.replace(/_/g, " ").toLowerCase(), "default")),
-      el("td", { class: "mono" }, c.instance), el("td", {}, short(c.methodId)),
+      el("td", { class: "mono" }, c.instance), el("td", {}, short(c.methodId), el("span", { class: "sub" }, c.serviceId)),
       el("td", {}, label(c.status, c.status === "OK" ? "success" : c.status === "PENDING" ? "warning" : "error")),
-      el("td", {}, c.message ? el("span", { class: c.status === "OK" ? "" : "err-text" }, c.message) : c.type === "BROWSE_QUEUE" && c.status === "OK" ? entries(c) : String(c.value)),
+      el("td", {}, c.message ? el("span", { class: c.status === "OK" ? "" : "err-text" }, c.message)
+        : c.type === "BROWSE_QUEUE" && c.status === "OK" ? el("button", { class: "btn sm soft", type: "button", onclick: () => openQueue(app, c, c.instance, [c]) }, icon("eye"),
+            `${c.entries.length} ${c.entries.length === 1 ? "entry" : "entries"} · View`)
+        : c.type === "CLEAR_QUEUE" ? `${c.value} removed` : String(c.value)),
       el("td", { class: "muted" }, c.actor || ""),
-      el("td", { class: "muted" }, c.completedAtMillis ? new Date(c.completedAtMillis).toLocaleTimeString() : "")));
-
-    $("content").replaceChildren(
-      pageHead(app.name, ["ASL Admin", "Applications", app.name],
-        el("div", { class: "btn-row" }, label(`Heartbeat ${app.intervalMillis / 1000}s`, "info"))),
-      widgets,
-      card("Methods", "Totals across replicas; expand a row for each replica and the stored trend.",
-        app.methods.length ? table("", ["", "Method", "State", "#In flight", "#Success", "#Errors", "#Rejected", "#Queue", ""], rows) : empty("grid", "info", "No governed methods", "This application registered no governed methods.")),
-      card("Replicas", "Each replica opens its own connection; settings reach it with the next heartbeat.", instances),
-      card("Recent commands", "Queue operations are sent to one replica and answered with its next heartbeat.",
-        commands.length ? table("", ["Command", "Replica", "Method", "Status", "Result", "By", "Done"], commands) : empty("check", "success", "No commands yet", "Browse, replay, delete and clear show up here.")));
+      el("td", { class: "muted" }, c.completedAtMillis ? new Date(c.completedAtMillis).toLocaleTimeString() : ""))))
+      : empty("check", "success", activeFilter(f) ? "No command matches the filter" : "No commands yet", "Browse, replay, delete and clear show up here."));
   }
 
-  function detail(app, m, idx) {
+  function detail(app, m, idx, insts) {
     const per = table("dense", ["Replica", "Enabled", "Mode", "#Max", "#Consumers", "#In flight", "#Errors", "#Queue pending / failed / running", "Replica override", ""],
-      app.instances.filter(i => i.samples[idx]).map(i => {
+      insts.filter(i => i.samples[idx]).map(i => {
         const s = i.samples[idx], own = describe(i.overrides[idx]);
         return el("tr", { class: "row" },
           el("td", { class: "mono" }, i.name),
@@ -626,24 +782,12 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
           el("td", {}, own ? label(own, "info", "tune") : el("span", { class: "muted" }, "—")),
           el("td", { class: "act" }, el("div", { class: "btn-row" },
             el("button", { class: "icon-btn sm", type: "button", title: "Tune this replica", "aria-label": "Tune this replica", onclick: () => openEditor(app, m, idx, i.name) }, icon("tune")),
-            m.hasQueue ? el("button", { class: "icon-btn sm", type: "button", title: "Browse queue", "aria-label": "Browse queue", onclick: () => command(m, i.name, "BROWSE_QUEUE") }, icon("eye")) : null,
+            m.hasQueue ? el("button", { class: "icon-btn sm", type: "button", title: "List queue entries", "aria-label": "List queue entries", onclick: () => openQueue(app, m, i.name) }, icon("eye")) : null,
             el("button", { class: "icon-btn sm", type: "button", title: "Reset statistics", "aria-label": "Reset statistics", onclick: () => command(m, i.name, "RESET_OBSERVATIONS") }, icon("reset")))));
       }));
     const charts = el("div", {}, el("div", { class: "hint" }, "Loading stored history…"));
     trend(m, charts);
     return el("tr", {}, el("td", { colspan: 9, class: "detail-cell" }, el("div", { class: "detail" }, el("div", { style: "overflow-x:auto" }, per), charts)));
-  }
-
-  function entries(c) {
-    if (!c.entries.length) return el("span", { class: "muted" }, "Queue is empty");
-    const target = { serviceId: c.serviceId, methodId: c.methodId };
-    return el("div", {}, c.entries.map(e => el("div", { style: "display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:4px 0" },
-      el("span", { class: "mono" }, "#" + e.entryId),
-      label(e.state, e.state === "FAILED" ? "error" : e.state === "IN_PROGRESS" ? "info" : "warning"),
-      el("span", { class: "muted" }, `attempts ${e.attempts}`), e.interruptions ? label(`interrupted ×${e.interruptions}`, "warning") : null,
-      e.lastError ? el("span", { class: "err-text" }, e.lastError) : null,
-      el("button", { class: "btn sm soft", type: "button", onclick: () => command(target, c.instance, "REPLAY_ENTRY", e.entryId) }, icon("replay"), "Replay"),
-      el("button", { class: "btn sm soft error", type: "button", onclick: () => command(target, c.instance, "DELETE_ENTRY", e.entryId, "Delete queue entry?", `Entry #${e.entryId} is removed from ${c.instance}.`) }, icon("trash"), "Delete"))));
   }
 
   // ---- settings editor (dialog) ----
@@ -678,12 +822,120 @@ td.detail-cell { padding: 0 16px 16px !important; background: rgb(var(--primary-
       el("button", { class: "btn contained", type: "button", onclick: save }, "Apply")]);
   }
 
+  // ---- commands: send, then wait for the replica's answer (it arrives with its next heartbeat) ----
+  async function runCommand(appName, body, alive, timeoutMs) {
+    const path = "/apps/" + encodeURIComponent(appName);
+    const res = await call("POST", path + "/commands", body);
+    const ids = (res && res.commandIds) || [], deadline = Date.now() + (timeoutMs || 20000);
+    for (;;) {
+      const app = await call("GET", path);
+      if (appName === selected) lastApp = app;
+      const done = ids.map(id => app.commands.find(c => c.commandId === id)).filter(c => c && c.status !== "PENDING");
+      if (done.length === ids.length || Date.now() > deadline || (alive && !alive())) return { ids, done, app };
+      await sleep(700);
+    }
+  }
+
+  // ---- queue entries dialog: lists what the replica(s) hold for one method ----
+  function openQueue(app, m, instance, preset) {
+    const appName = app.name, everyReplica = instance === "*";
+    const status = el("div", { class: "q-status" }), wrap = el("div", { class: "q-wrap" });
+    const base = { serviceId: m.serviceId, methodId: m.methodId };
+    let open = true, busy = false;
+    const working = text => { status.replaceChildren(el("span", { class: "spinner" }), el("span", {}, text)); };
+    const tone = s => s === "FAILED" ? "error" : s === "IN_PROGRESS" ? "info" : "warning";
+    const held = name => {
+      const a = lastApp && lastApp.name === appName ? lastApp : app;
+      const inst = a.instances.find(i => i.name === name), idx = a.methods.findIndex(x => x.serviceId === m.serviceId && x.methodId === m.methodId);
+      const s = inst && idx >= 0 ? inst.samples[idx] : null;
+      return s ? s[Q_PENDING] + s[Q_FAILED] + s[Q_RUNNING] : null;
+    };
+    function show(results, missing) {
+      const rows = [], notes = [];
+      let listed = 0;
+      for (const c of results) {
+        if (c.status !== "OK") { notes.push(el("div", {}, el("span", { class: "mono strong" }, c.instance), " ", label(c.status, "error"), " ", el("span", { class: "err-text" }, c.message || ""))); continue; }
+        listed += c.entries.length;
+        const total = held(c.instance);
+        if (total !== null && total > c.entries.length) notes.push(el("div", {}, el("span", { class: "mono" }, c.instance), `: first ${c.entries.length} of ${total} entries`));
+        for (const e of c.entries) rows.push(el("tr", { class: "row" },
+          everyReplica ? el("td", { class: "mono" }, c.instance) : null,
+          el("td", { class: "mono strong" }, "#" + e.entryId),
+          el("td", { class: "nowrap" }, label(e.state, tone(e.state)), e.interruptions ? label(`interrupted ×${e.interruptions}`, "warning") : null),
+          el("td", { class: "num" }, e.attempts),
+          el("td", { class: "nowrap" }, e.enqueuedAtMillis ? new Date(e.enqueuedAtMillis).toLocaleString() : "—"),
+          el("td", {}, e.lastError ? el("span", { class: "err-text q-err", title: e.lastError }, (e.errorCategory ? e.errorCategory + " · " : "") + e.lastError)
+            : el("span", { class: "muted" }, "—")),
+          el("td", { class: "act" }, el("div", { class: "btn-row" },
+            el("button", { class: "btn sm soft", type: "button", disabled: e.state === "IN_PROGRESS", onclick: () => act("REPLAY_ENTRY", c.instance, e) }, icon("replay"), "Replay"),
+            el("button", { class: "btn sm soft error", type: "button", disabled: e.state === "IN_PROGRESS", onclick: () => act("DELETE_ENTRY", c.instance, e) }, icon("trash"), "Delete")))));
+      }
+      const answered = results.length;
+      status.replaceChildren(...[label(`${listed} ${listed === 1 ? "entry" : "entries"}`, listed ? "info" : "success"),
+        el("span", {}, `${answered} ${answered === 1 ? "replica" : "replicas"} answered · read ${new Date().toLocaleTimeString()}`),
+        missing ? label(`${missing} not answered yet`, "warning") : null].filter(Boolean));
+      if (notes.length) status.append(el("div", { style: "flex-basis:100%" }, notes));
+      const head = [everyReplica ? "Replica" : null, "Entry", "State", "#Attempts", "Enqueued", "Last error", ""].filter(h => h !== null);
+      wrap.replaceChildren(rows.length ? table("dense", head, rows) : empty("check", "success", "Queue is empty", everyReplica ? "No replica holds an entry for this method." : `${instance} holds no entry for this method.`));
+    }
+    async function browse() {
+      if (busy || !open) return;
+      busy = true;
+      working(everyReplica ? "Asking every replica… answers arrive with the next heartbeat (about 2 s)." : `Asking ${instance}… the answer arrives with its next heartbeat (about 2 s).`);
+      try {
+        const r = await runCommand(appName, { ...base, instance, type: "BROWSE_QUEUE", limit: 50 }, () => open);
+        if (open) show(r.done, r.ids.length - r.done.length);
+      } catch (e) { status.replaceChildren(label("Error", "error"), el("span", { class: "err-text" }, e.message)); }
+      busy = false;
+    }
+    async function act(type, replica, e) {
+      if (busy) return;
+      if (type === "DELETE_ENTRY" && !(await confirmDialog("Delete queue entry?", `Entry #${e.entryId} is removed from ${replica}. This cannot be undone.`, "Delete"))) return;
+      busy = true;
+      working(`${type === "REPLAY_ENTRY" ? "Replaying" : "Deleting"} #${e.entryId} on ${replica}…`);
+      try {
+        const r = await runCommand(appName, { ...base, instance: replica, type, entryId: e.entryId }, () => open);
+        const c = r.done[0];
+        if (!c) toast("No answer yet; see Recent commands.", "info");
+        else if (c.status === "OK") toast(type === "REPLAY_ENTRY" ? `Entry #${e.entryId} queued again on ${replica}.` : `Entry #${e.entryId} deleted on ${replica}.`);
+        else toast(`${c.status}${c.message ? ": " + c.message : ""}`, "error");
+      } catch (err) { toast(err.message, "error"); }
+      busy = false;
+      browse();
+    }
+    async function clearAll() {
+      if (busy) return;
+      if (!(await confirmDialog("Clear the queue?", `Removes every entry that is not running for ${short(m.methodId)} on ${everyReplica ? "all replicas" : instance}.`, "Clear"))) return;
+      busy = true;
+      working("Clearing…");
+      try {
+        const r = await runCommand(appName, { ...base, instance, type: "CLEAR_QUEUE" }, () => open);
+        toast(`Queue cleared: ${r.done.filter(c => c.status === "OK").reduce((a, c) => a + c.value, 0)} entries removed.`);
+      } catch (err) { toast(err.message, "error"); }
+      busy = false;
+      browse();
+    }
+    openDialog("Queue entries", `${m.serviceId} · ${short(m.methodId)} · ${everyReplica ? "all replicas" : instance}`, [status, wrap], close => [
+      el("button", { class: "btn outlined left", type: "button", onclick: browse }, icon("replay"), "Refresh"),
+      el("button", { class: "btn soft error", type: "button", onclick: clearAll }, icon("trash"), "Clear queue"),
+      el("button", { class: "btn contained", type: "button", onclick: close }, "Close")], "lg", () => { open = false; });
+    if (preset) show(preset, 0); else browse();
+  }
+
   async function command(m, instance, type, entryId, confirmTitle, confirmText) {
     if (confirmTitle && !(await confirmDialog(confirmTitle, confirmText, "Confirm"))) return;
-    const body = { serviceId: m.serviceId, methodId: m.methodId, instance, type, limit: 20 };
+    const appName = selected, what = type.replace(/_/g, " ").toLowerCase();
+    const body = { serviceId: m.serviceId, methodId: m.methodId, instance, type };
     if (entryId) body.entryId = entryId;
-    try { await call("POST", appPath("/commands"), body); toast(type.replace(/_/g, " ").toLowerCase() + " sent", "info"); loadApp(); }
-    catch (e) { toast(e.message, "error"); }
+    toast(`${what}: sent, waiting for the answer…`, "info");
+    try {
+      const r = await runCommand(appName, body);
+      const ok = r.done.filter(c => c.status === "OK"), bad = r.done.filter(c => c.status !== "OK");
+      if (bad.length) toast(`${what}: ${bad[0].instance} answered ${bad[0].status}${bad[0].message ? " – " + bad[0].message : ""}`, "error");
+      else if (ok.length < r.ids.length) toast(`${what}: ${ok.length} of ${r.ids.length} replicas answered so far; see Recent commands.`, "info");
+      else toast(type === "CLEAR_QUEUE" ? `Queue cleared: ${ok.reduce((a, c) => a + c.value, 0)} entries removed.` : `${what}: done on ${ok.length} ${ok.length === 1 ? "replica" : "replicas"}.`);
+    } catch (e) { toast(e.message, "error"); }
+    if (appName === selected && view === "apps") loadApp();
   }
 
   // ---- audit page ----

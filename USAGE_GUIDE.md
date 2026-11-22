@@ -248,7 +248,9 @@ One central admin server manages every application and replica. It works like a 
 
 **Settings model.** The server keeps only overrides that differ from the application's own `application.yml`: application-wide (persisted) or per replica (memory only, removed with the replica). A new replica receives the current overrides when it registers. Removing an override returns the method to its yml value. Limits stay per replica: `max-concurrency: 20` on three replicas allows 60 concurrent calls in total.
 
-**Queue operations.** Each replica owns its MapDB queue, so clear / replay / delete / browse target one replica. Browsing sends entry summaries and error texts to the server, so it is off unless the replica sets `asl.admin.client.queue-browse=true`.
+**Queue operations.** Each replica owns its MapDB queue, so replay and delete target the replica that holds the entry; browse and clear go to one replica or to all of them. In the portal, the **Queue** button of a method (or a "failed" label) opens a dialog that asks the replicas and lists their entries with Replay and Delete; the answer arrives with each replica's next heartbeat (about 2 s while the portal is open). Browsing sends entry summaries and error texts to the server, so it is off unless the replica sets `asl.admin.client.queue-browse=true`.
+
+**Finding things.** The sidebar filters applications by name and can show only those that need attention (setting errors, failed queue entries, replicas still applying settings). On an application page the method list filters by service or method name, by service, by replica and by state (stopped, async, queue not empty, failed entries, errors, overridden, replicas differ). With a replica selected, totals, widgets, the replica list and recent commands cover that replica only.
 
 Application side:
 

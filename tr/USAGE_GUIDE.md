@@ -248,7 +248,9 @@ Tek bir merkezi admin server tüm uygulama ve replica'ları yönetir. Sunucu bir
 
 **Ayar modeli.** Sunucu yalnızca uygulamanın kendi `application.yml` değerinden farklı olan override'ları tutar: uygulama düzeyinde (kalıcı) veya replica düzeyinde (yalnız bellekte, replica kapanınca silinir). Yeni açılan replica kayıt olurken güncel override'ları alır. Override kaldırılınca metot yml değerine döner. Limitler replica başınadır: üç replica'da `max-concurrency: 20` toplamda 60 eşzamanlı çağrıya izin verir.
 
-**Kuyruk işlemleri.** Her replica kendi MapDB kuyruğuna sahiptir; bu yüzden clear / replay / delete / browse tek bir replica'yı hedefler. Browse, kayıt özetlerini ve hata metinlerini sunucuya gönderdiği için replica `asl.admin.client.queue-browse=true` vermedikçe kapalıdır.
+**Kuyruk işlemleri.** Her replica kendi MapDB kuyruğuna sahiptir; bu yüzden replay ve delete kaydı tutan replica'ya gider, browse ve clear ise tek bir replica'ya ya da hepsine gönderilebilir. Portalde bir metodun **Queue** butonu (veya "failed" etiketi) replica'lara soran ve kayıtları Replay ve Delete ile listeleyen bir pencere açar; cevap her replica'nın bir sonraki heartbeat'iyle gelir (portal açıkken yaklaşık 2 sn). Browse, kayıt özetlerini ve hata metinlerini sunucuya gönderdiği için replica `asl.admin.client.queue-browse=true` vermedikçe kapalıdır.
+
+**Arama ve filtreleme.** Sol menü uygulamaları ada göre filtreler ve yalnız ilgilenilmesi gerekenleri (ayar hatası, hatalı kuyruk kaydı, ayarı henüz uygulamayan replica) gösterebilir. Uygulama sayfasında metot listesi servis veya metot adına, servise, replica'ya ve duruma (durdurulmuş, async, kuyruk dolu, hatalı kayıt, hata, override'lı, replica'lar farklı) göre filtrelenir. Bir replica seçiliyken toplamlar, özet kutuları, replica listesi ve son komutlar yalnız o replica'yı gösterir.
 
 Uygulama tarafı:
 
