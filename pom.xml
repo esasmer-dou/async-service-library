@@ -76,7 +76,7 @@
         <jacoco.version>0.8.14</jacoco.version>
         <micrometer.version>1.13.6</micrometer.version>
         <jmh.version>1.37</jmh.version>
-        <cyclonedx.version>2.9.2</cyclonedx.version>
+        <cyclonedx.version>2.9.3</cyclonedx.version>
         <jacoco.line.minimum>0.00</jacoco.line.minimum>
     </properties>
 
