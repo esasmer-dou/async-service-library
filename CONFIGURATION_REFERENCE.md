@@ -28,7 +28,7 @@ This document lists every Spring Boot property exposed by ASL. Spring configurat
 
 ## Startup Method Overrides
 
-`asl.runtime.services` (core starter) is a dynamic map root. Each child key is a governed service ID, followed by `methods`, then the exact method ID/signature. Unknown service or method keys fail startup. Overrides from the central admin server are applied on top of these values; removing them returns the method to the value configured here. The removed in-application portal's `asl.admin.services` key is no longer read; move its values here.
+`asl.runtime.services` (core starter) is a dynamic map root. Each child key is a governed service ID, followed by `methods`, then the exact method ID/signature. Write both keys in brackets (`"[mail.service]"`, `"[send(java.lang.String)]"`; in a properties file `asl.runtime.services[mail.service].methods[send(java.lang.String)].max-concurrency`): without brackets Spring Boot splits the key at each dot and drops the parentheses, so the setting cannot match. Unknown service or method keys, and keys written without brackets, fail startup with this hint. Overrides from the central admin server are applied on top of these values; removing them returns the method to the value configured here. The removed in-application portal's `asl.admin.services` key is no longer read; move its values here.
 
 Pattern:
 
@@ -36,9 +36,9 @@ Pattern:
 asl:
   runtime:
     services:
-      "mail.service":
+      "[mail.service]":
         methods:
-          "publishAudit(java.lang.String,java.lang.String)":
+          "[publishAudit(java.lang.String,java.lang.String)]":
             enabled: true
             max-concurrency: 4
             unavailable-message: Temporarily unavailable
@@ -145,16 +145,16 @@ Executable `asl-admin-server-<version>-exec.jar` (JDK HTTP server and MapDB, no 
 
 Per-lane override pattern:
 
-`asl.async.mapdb.services` is the dynamic capacity-override map root. Each child key is a governed service ID, followed by `methods`, then the exact method ID/signature.
+`asl.async.mapdb.services` is the dynamic capacity-override map root. Each child key is a governed service ID, followed by `methods`, then the exact method ID/signature. As above, write both keys in brackets; a key that lost its dots or parentheses fails startup.
 
 ```yaml
 asl:
   async:
     mapdb:
       services:
-        "mail.service":
+        "[mail.service]":
           methods:
-            "publishAudit(java.lang.String,java.lang.String)":
+            "[publishAudit(java.lang.String,java.lang.String)]":
               max-entries: 20000
               max-payload-bytes: 134217728
 ```

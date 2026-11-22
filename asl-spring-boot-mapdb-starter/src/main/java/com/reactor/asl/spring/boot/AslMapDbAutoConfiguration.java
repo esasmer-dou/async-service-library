@@ -20,8 +20,12 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.jackson.JacksonAutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 @AutoConfiguration(after = {AslCoreAutoConfiguration.class, JacksonAutoConfiguration.class})
 @ConditionalOnClass(MapDbAsyncExecutionEngine.class)
@@ -29,6 +33,7 @@ import java.nio.file.Path;
 @EnableConfigurationProperties(AslAsyncMapDbProperties.class)
 public class AslMapDbAutoConfiguration {
     private static final Logger log = LoggerFactory.getLogger(AslMapDbAutoConfiguration.class);
+    static final String LANE_PREFIX = "asl.async.mapdb.services";
 
     @Bean
     @ConditionalOnMissingBean
@@ -102,7 +107,8 @@ public class AslMapDbAutoConfiguration {
             GovernanceRegistry governanceRegistry,
             AslAsyncMapDbProperties properties,
             AsyncPayloadCodec asyncPayloadCodec,
-            AslStartupRecoveryState startupRecoveryState
+            AslStartupRecoveryState startupRecoveryState,
+            Environment environment
     ) {
         if (!properties.isTransactionsEnabled()) {
             log.warn(
@@ -113,14 +119,14 @@ public class AslMapDbAutoConfiguration {
         MapDbAsyncExecutionEngine engine = new MapDbAsyncExecutionEngine(
                 databasePath,
                 asyncPayloadCodec,
-                executionOptions(properties)
+                executionOptions(properties, environment)
         );
         engine.startupRecovery().ifPresent(recovery -> recordStartupRecovery(startupRecoveryState, recovery));
         governanceRegistry.attachAsyncExecutionEngine(engine);
         return engine;
     }
 
-    private MapDbAsyncExecutionOptions executionOptions(AslAsyncMapDbProperties properties) {
+    private MapDbAsyncExecutionOptions executionOptions(AslAsyncMapDbProperties properties, Environment environment) {
         AslAsyncMapDbProperties.Admission admission = properties.getAdmission();
         AslAsyncMapDbProperties.Writer writer = properties.getWriter();
         AslAsyncMapDbProperties.Workers workers = properties.getWorkers();
@@ -172,7 +178,18 @@ public class AslMapDbAutoConfiguration {
                 .errorDetailPolicy(payload.getErrorDetailPolicy())
                 .legacyJavaMigrationEnabled(payload.isLegacyJavaMigrationEnabled());
 
+        // Without brackets Spring Boot splits "mail.service" at the dot or drops "send(java.lang.String)"
+        // while binding; the lane limit would then silently never apply.
+        Map<String, Set<String>> bound = new LinkedHashMap<>();
+        properties.getServices().forEach((service, configuration) -> bound.put(service, configuration.getMethods().keySet()));
+        AslServiceKeys.requireBound(environment, LANE_PREFIX, bound, "max-entries");
         for (var serviceEntry : properties.getServices().entrySet()) {
+            for (String methodId : serviceEntry.getValue().getMethods().keySet()) {
+                if (methodId.indexOf('(') < 0 || !methodId.endsWith(")")) {
+                    throw new IllegalStateException(LANE_PREFIX + "['" + serviceEntry.getKey() + "'] method key '"
+                            + methodId + "' is not a method signature." + AslServiceKeys.hint(LANE_PREFIX, "max-entries"));
+                }
+            }
             for (var methodEntry : serviceEntry.getValue().getMethods().entrySet()) {
                 AslAsyncMapDbProperties.LaneConfiguration lane = methodEntry.getValue();
                 long maxEntries = lane.getMaxEntries() == null

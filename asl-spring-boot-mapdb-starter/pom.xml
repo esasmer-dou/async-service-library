@@ -66,6 +66,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Tests bind real YAML to check that service and method keys need brackets. -->
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-configuration-processor</artifactId>
             <optional>true</optional>

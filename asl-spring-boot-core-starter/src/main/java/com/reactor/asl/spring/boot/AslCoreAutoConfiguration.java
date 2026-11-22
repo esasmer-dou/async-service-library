@@ -40,9 +40,10 @@ public class AslCoreAutoConfiguration {
     @ConditionalOnMissingBean
     AslRuntimeMethodOverridesApplier aslRuntimeMethodOverridesApplier(
             GovernanceRegistry governanceRegistry,
-            AslRuntimeProperties properties
+            AslRuntimeProperties properties,
+            Environment environment
     ) {
-        return new AslRuntimeMethodOverridesApplier(governanceRegistry, properties);
+        return new AslRuntimeMethodOverridesApplier(governanceRegistry, properties, environment);
     }
 
     @Bean

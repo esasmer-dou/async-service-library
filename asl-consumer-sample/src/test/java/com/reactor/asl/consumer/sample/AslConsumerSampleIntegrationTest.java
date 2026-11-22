@@ -99,6 +99,12 @@ class AslConsumerSampleIntegrationTest {
     }
 
     @Test
+    void appliesStartupValuesFromApplicationYaml() {
+        // application.yml sets max-concurrency 6 over the annotation's 4; the keys only bind when written in brackets.
+        assertEquals(6, registry.service(MAIL_SERVICE_ID).methodById(MAIL_SEND_METHOD_ID).policy().maxConcurrency());
+    }
+
+    @Test
     void injectsGovernedWrapperAndSupportsRuntimeControl() {
         assertTrue(mailService.getClass().getName().endsWith("AslGoverned"));
 

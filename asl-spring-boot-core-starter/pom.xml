@@ -49,6 +49,12 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Tests bind real YAML to check that service and method keys need brackets. -->
+            <groupId>org.yaml</groupId>
+            <artifactId>snakeyaml</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

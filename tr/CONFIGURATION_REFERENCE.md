@@ -28,15 +28,15 @@ Bu doküman ASL’nin Spring Boot üzerinden dışarı açtığı bütün proper
 
 ## Metot Bazlı Başlangıç Override’ı
 
-`asl.runtime.services` (core starter) dinamik bir map köküdür. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır. Bilinmeyen servis veya metot anahtarı startup'ı durdurur. Merkezi admin server'dan gelen override'lar bu değerlerin üstüne uygulanır; kaldırıldıklarında metot buradaki değere döner. Kaldırılan uygulama içi portalın `asl.admin.services` anahtarı artık okunmaz; değerleri buraya taşı.
+`asl.runtime.services` (core starter) dinamik bir map köküdür. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır. İki anahtar da köşeli parantez içinde yazılmalıdır (`"[mail.service]"`, `"[send(java.lang.String)]"`; properties dosyasında `asl.runtime.services[mail.service].methods[send(java.lang.String)].max-concurrency`): parantez olmadan Spring Boot anahtarı her noktada böler ve parantezleri siler, ayar hiçbir metotla eşleşmez. Bilinmeyen servis veya metot anahtarı ve parantezsiz yazılmış anahtarlar startup'ı bu ipucuyla durdurur. Merkezi admin server'dan gelen override'lar bu değerlerin üstüne uygulanır; kaldırıldıklarında metot buradaki değere döner. Kaldırılan uygulama içi portalın `asl.admin.services` anahtarı artık okunmaz; değerleri buraya taşı.
 
 ```yaml
 asl:
   runtime:
     services:
-      "mail.service":
+      "[mail.service]":
         methods:
-          "publishAudit(java.lang.String,java.lang.String)":
+          "[publishAudit(java.lang.String,java.lang.String)]":
             enabled: true
             max-concurrency: 4
             unavailable-message: Geçici olarak kullanılamıyor
@@ -143,16 +143,16 @@ Modül `asl-spring-boot-admin-client-starter`. Uygulamayı `asl-admin-server`'a 
 
 Lane bazlı sınır örneği:
 
-`asl.async.mapdb.services` metot bazlı kapasite override map’inin köküdür. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır.
+`asl.async.mapdb.services` metot bazlı kapasite override map’inin köküdür. Altındaki ilk anahtar governed service ID’si, sonraki `methods` bölümü ise gerçek metot ID/imzasıdır. Yukarıdaki gibi iki anahtar da köşeli parantez içinde yazılır; noktaları veya parantezleri kaybolmuş bir anahtar startup'ı durdurur.
 
 ```yaml
 asl:
   async:
     mapdb:
       services:
-        "mail.service":
+        "[mail.service]":
           methods:
-            "publishAudit(java.lang.String,java.lang.String)":
+            "[publishAudit(java.lang.String,java.lang.String)]":
               max-entries: 20000
               max-payload-bytes: 134217728
 ```

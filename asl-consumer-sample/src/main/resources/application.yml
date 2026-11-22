@@ -11,11 +11,11 @@ asl:
     default-unavailable-message: Method is disabled
     max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
     services:
-      "mail.service":
+      "[mail.service]":
         methods:
-          "send(java.lang.String)":
+          "[send(java.lang.String)]":
             max-concurrency: 6
-          "publishAudit(java.lang.String)":
+          "[publishAudit(java.lang.String)]":
             execution-mode: ASYNC
             consumer-threads: 2
   admin:

@@ -11,7 +11,14 @@ import com.reactor.asl.core.ServiceDescriptor;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.env.PropertySource;
+import org.springframework.core.env.StandardEnvironment;
+import org.springframework.core.io.ByteArrayResource;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +72,63 @@ class AslRuntimeMethodOverridesApplierTest {
         IllegalStateException noEngine = assertThrows(IllegalStateException.class,
                 () -> new AslRuntimeMethodOverridesApplier(registry, async).afterSingletonsInstantiated());
         assertTrue(noEngine.getMessage().contains("no async execution engine"));
+    }
+
+    @Test
+    void yamlWithBracketedKeysIsApplied() {
+        StandardEnvironment environment = yamlEnvironment("""
+                asl:
+                  runtime:
+                    services:
+                      "[mail.service]":
+                        methods:
+                          "[send(java.lang.String)]":
+                            max-concurrency: 6
+                """);
+        GovernanceRegistry registry = registry();
+        new AslRuntimeMethodOverridesApplier(registry, bind(environment), environment).afterSingletonsInstantiated();
+        assertEquals(6, registry.service(SERVICE).methodById(SYNC).policy().maxConcurrency());
+    }
+
+    @Test
+    void yamlWithoutBracketsFailsInsteadOfBeingIgnored() {
+        for (String[] keys : new String[][]{
+                {"mail.service", "[send(java.lang.String)]"},
+                {"[mail.service]", "send(java.lang.String)"},
+                {"mail.service", "send(java.lang.String)"}}) {
+            StandardEnvironment environment = yamlEnvironment("""
+                    asl:
+                      runtime:
+                        services:
+                          "%s":
+                            methods:
+                              "%s":
+                                max-concurrency: 6
+                    """.formatted(keys[0], keys[1]));
+            GovernanceRegistry registry = registry();
+            IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> new AslRuntimeMethodOverridesApplier(registry, bind(environment), environment).afterSingletonsInstantiated(),
+                    String.join(" / ", keys));
+            assertTrue(failure.getMessage().contains("[mail.service]"), failure.getMessage());
+            assertEquals(2, registry.service(SERVICE).methodById(SYNC).policy().maxConcurrency(), "nothing was applied");
+        }
+    }
+
+    private static StandardEnvironment yamlEnvironment(String yaml) {
+        StandardEnvironment environment = new StandardEnvironment();
+        try {
+            for (PropertySource<?> source : new YamlPropertySourceLoader()
+                    .load("application.yml", new ByteArrayResource(yaml.getBytes(StandardCharsets.UTF_8)))) {
+                environment.getPropertySources().addFirst(source);
+            }
+        } catch (IOException exception) {
+            throw new UncheckedIOException(exception);
+        }
+        return environment;
+    }
+
+    private static AslRuntimeProperties bind(StandardEnvironment environment) {
+        return Binder.get(environment).bind("asl.runtime", AslRuntimeProperties.class).orElseGet(AslRuntimeProperties::new);
     }
 
     private static AslRuntimeProperties bind(Map<String, String> values) {
