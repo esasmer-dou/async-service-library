@@ -52,7 +52,8 @@ public class AslAdminClientAutoConfiguration {
                 properties.getMaxBackoff().toMillis(),
                 properties.isQueueBrowse(),
                 properties.getBrowseLimit(),
-                properties.getMaxErrorChars()
+                properties.getMaxErrorChars(),
+                properties.getMaxSummaryChars()
         );
         List<BufferAdminProvider> bufferProviders = providers.orderedStream().toList();
         return new AslAdminClient(

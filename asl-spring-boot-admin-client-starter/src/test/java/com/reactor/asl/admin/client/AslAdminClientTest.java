@@ -201,6 +201,11 @@ class AslAdminClientTest {
         assertEquals(1, browse.entries().size());
         assertEquals(10, engine.lastSnapshotLimit);
         assertEquals(32, browse.entries().get(0).lastError().length());
+        assertEquals("summary", browse.entries().get(0).summary());
+        assertEquals("Order", browse.entries().get(0).payloadType());
+        assertEquals("1", browse.entries().get(0).payloadVersion());
+        assertEquals("jackson", browse.entries().get(0).codecId());
+        assertEquals("IllegalStateException", browse.entries().get(0).lastErrorType());
         assertEquals(Ack.OK, acks.acks().get(1).status());
         assertEquals(3, acks.acks().get(1).value());
         assertEquals(1, acks.acks().get(2).value());

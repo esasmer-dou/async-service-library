@@ -54,6 +54,10 @@ public final class AslAdminClient implements AutoCloseable {
     private static final long FAILURE_LOG_INTERVAL_MILLIS = 5 * 60_000L;
     private static final long ACK_FLUSH_DELAY_MILLIS = 200L;
     private static final int EXECUTED_COMMAND_MEMORY = 256;
+    /** Payload type, payload version and codec id are short labels; anything longer is cut. */
+    private static final int MAX_LABEL_CHARS = 120;
+    /** One browse answer stays under this size, so two of them and the samples still fit the server's 64 KB body limit. */
+    private static final int BROWSE_ANSWER_BUDGET_BYTES = 24 * 1024;
 
     private final AslAdminClientSettings settings;
     private final GovernanceRegistry registry;
@@ -557,18 +561,51 @@ public final class AslAdminClient implements AutoCloseable {
         int limit = Math.max(1, Math.min(command.limit() <= 0 ? settings.browseLimit() : command.limit(), settings.browseLimit()));
         MethodBufferSnapshot snapshot = provider.snapshot(runtime.serviceId(), runtime.methodId(), limit);
         List<QueueEntry> entries = new ArrayList<>(snapshot.entries().size());
+        int bytes = 0;
         for (MethodBufferEntryView entry : snapshot.entries()) {
-            entries.add(new QueueEntry(
+            QueueEntry item = new QueueEntry(
                     entry.entryId(),
                     entry.state(),
                     entry.attempts(),
                     entry.interruptions(),
                     entry.enqueuedAt() == null ? 0 : entry.enqueuedAt().toEpochMilli(),
                     entry.errorCategory(),
-                    entry.lastError() == null ? null : truncate(entry.lastError())
-            ));
+                    cut(entry.lastError(), settings.maxErrorChars()),
+                    cut(entry.lastErrorType(), settings.maxErrorChars()),
+                    cut(entry.summary(), settings.maxSummaryChars()),
+                    cut(entry.payloadType(), MAX_LABEL_CHARS),
+                    cut(entry.payloadVersion(), MAX_LABEL_CHARS),
+                    cut(entry.codecId(), MAX_LABEL_CHARS)
+            );
+            // The answer rides in one beat; stop before it could pass the server's body limit (64 KB by default).
+            bytes += utf8Length(item);
+            if (bytes > BROWSE_ANSWER_BUDGET_BYTES && !entries.isEmpty()) {
+                break;
+            }
+            entries.add(item);
         }
         return new Ack(command.commandId(), Ack.OK, entries.size(), null, entries);
+    }
+
+    private static int utf8Length(QueueEntry entry) {
+        int total = 32;
+        for (String value : new String[] {entry.entryId(), entry.state(), entry.errorCategory(), entry.lastError(),
+                entry.lastErrorType(), entry.summary(), entry.payloadType(), entry.payloadVersion(), entry.codecId()}) {
+            total += value == null ? 1 : value.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 2;
+        }
+        return total;
+    }
+
+    /** Cuts to at most {@code max} characters without splitting a surrogate pair; 0 drops the value. */
+    private static String cut(String value, int max) {
+        if (value == null || max <= 0) {
+            return null;
+        }
+        if (value.length() <= max) {
+            return value;
+        }
+        int end = Character.isHighSurrogate(value.charAt(max - 1)) ? max - 1 : max;
+        return value.substring(0, end);
     }
 
     private static Ack reject(Command command, String reason) {

@@ -75,9 +75,11 @@ asl:
       transactions-enabled: true
       memory-mapped-enabled: false
       corruption-policy: ARCHIVE_AND_RESET
+      payload:
+        summary-policy: CODEC
 ```
 
-`asl.runtime.services` başlangıç değerleridir. Portalde verilen override'lar sample bağlıyken bunların üstüne uygulanır; override kaldırılınca metot bu değerlere döner. `queue-browse: true` portalin kuyruk kayıtlarını listelemesine izin verir; bu durumda kayıt özetleri ve hata metinleri admin server'a gider. Desteklenen tüm property'ler, varsayılanları ve verilmediklerindeki davranış [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md) dosyasındadır.
+`asl.runtime.services` başlangıç değerleridir. Portalde verilen override'lar sample bağlıyken bunların üstüne uygulanır; override kaldırılınca metot bu değerlere döner. `queue-browse: true` portalin kuyruk kayıtlarını listelemesine izin verir; bu durumda kayıt özetleri ve hata metinleri admin server'a gider. Sample `asl.async.mapdb.payload.summary-policy: CODEC` verir; böylece portalin kuyruk penceresi her çağrının argümanlarının kısa metnini gösterir. Production servisleri bu metnin gösterilmesi güvenli değilse varsayılan `TYPE_ONLY` (yalnız payload tipi) ile kalmalıdır. Desteklenen tüm property'ler, varsayılanları ve verilmediklerindeki davranış [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md) dosyasındadır.
 
 ## Ana API'ler
 

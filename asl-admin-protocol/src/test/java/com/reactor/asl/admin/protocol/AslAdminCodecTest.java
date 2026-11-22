@@ -60,6 +60,25 @@ class AslAdminCodecTest {
     }
 
     @Test
+    void queueEntryDetailsRoundTripAndOlderPodsAreStillRead() {
+        QueueEntry detailed = new QueueEntry("e2", "PENDING", 0, 0, 5L, null, null,
+                "java.lang.IllegalStateException", "{\"orderId\":42}", "Order", "v2", "jackson-json");
+        Beat beat = new Beat(1, 1, 0, 0, null, List.of(new Ack(3, Ack.OK, 1, null, List.of(detailed))), List.of());
+        assertEquals(detailed, AslAdminCodec.decodeBeat(AslAdminCodec.encode(beat)).acks().get(0).entries().get(0));
+
+        // Layout of a pod built before the details existed: flag 8 is not set and every entry ends after lastError.
+        WireWriter old = new WireWriter(64);
+        old.u8(AslAdminProtocol.VERSION).u8(AslAdminCodec.TYPE_BEAT).uvar(1).uvar(1).uvar(0).u8(0)
+                .uvar(1).uvar(3).u8(Ack.OK).svar(1).str(null)
+                .uvar(1).str("e1").str("FAILED").uvar(2).uvar(0).svar(7L).str("BUSINESS").str("boom")
+                .uvar(0);
+        QueueEntry legacy = AslAdminCodec.decodeBeat(old.toByteArray()).acks().get(0).entries().get(0);
+        assertEquals("boom", legacy.lastError());
+        assertNull(legacy.summary());
+        assertNull(legacy.payloadType());
+    }
+
+    @Test
     void registerRoundTrips() {
         Register register = new Register("orders", "orders-7f9c", "0.2.0", List.of(
                 new MethodInfo("OrderService", "create(java.lang.String)", true, true),

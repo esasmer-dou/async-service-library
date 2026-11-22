@@ -72,6 +72,7 @@ Module `asl-spring-boot-admin-client-starter`. Connects the application to `asl-
 | `asl.admin.client.queue-browse` | `false` | Lets the server list queue entries. Entry summaries and error texts then leave the pod. |
 | `asl.admin.client.browse-limit` | `50` | Maximum entries per browse command (1–500). |
 | `asl.admin.client.max-error-chars` | `200` | Error texts sent to the server are cut to this length. |
+| `asl.admin.client.max-summary-chars` | `200` | Payload summaries sent with browse answers are cut to this length (0–2000; `0` sends none). The summary is what `asl.async.mapdb.payload.summary-policy` stored: the payload type by default, a short text of the arguments with `CODEC`. The payload itself never leaves the pod. |
 
 ## Central Admin Server
 

@@ -75,9 +75,11 @@ asl:
       transactions-enabled: true
       memory-mapped-enabled: false
       corruption-policy: ARCHIVE_AND_RESET
+      payload:
+        summary-policy: CODEC
 ```
 
-`asl.runtime.services` are the startup values. Overrides set in the portal are applied on top while the sample is connected; removing an override returns the method to these values. `queue-browse: true` lets the portal list queue entries, which sends entry summaries and error texts to the admin server. Every supported property, its default, and the behavior when omitted are in [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md).
+`asl.runtime.services` are the startup values. Overrides set in the portal are applied on top while the sample is connected; removing an override returns the method to these values. `queue-browse: true` lets the portal list queue entries, which sends entry summaries and error texts to the admin server. The sample sets `asl.async.mapdb.payload.summary-policy: CODEC`, so the portal's queue dialog shows a short text of each call's arguments; production services keep the default `TYPE_ONLY` (payload type only) unless that text is safe to show. Every supported property, its default, and the behavior when omitted are in [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md).
 
 ## Main APIs
 

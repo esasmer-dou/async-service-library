@@ -46,6 +46,8 @@ public final class InstanceRegistry {
     /** Replicas of one application send the same names; one shared copy keeps the heap flat as pods are added. */
     private final Map<Object, Object> canonical = new ConcurrentHashMap<>();
     private static final int MAX_CANONICAL = 200_000;
+    /** Queue entries kept per application across the newest browse answers (about 250 KB at most). */
+    static final int RETAINED_QUEUE_ENTRIES = 500;
     private final long intervalMillis;
     private final long watchIntervalMillis;
     private final long watchIdleMillis;
@@ -537,6 +539,25 @@ public final class InstanceRegistry {
             while (results.size() > maxResults) {
                 results.removeLast();
             }
+            // Browse answers are the only large results. The portal reads them right away, so the newest
+            // answers keep their entries up to RETAINED_QUEUE_ENTRIES per application; older answers keep
+            // status and count only. Keeps the heap flat however often people browse.
+            int total = 0;
+            for (CommandResult kept : results) {
+                total += kept.entries().size();
+            }
+            if (total <= RETAINED_QUEUE_ENTRIES) {
+                return;
+            }
+            int seen = 0;
+            ArrayDeque<CommandResult> copy = new ArrayDeque<>(results.size());
+            for (CommandResult kept : results) {
+                boolean keep = kept.entries().isEmpty() || seen + kept.entries().size() <= RETAINED_QUEUE_ENTRIES || seen == 0;
+                seen += keep ? kept.entries().size() : 0;
+                copy.addLast(keep ? kept : kept.withoutEntries());
+            }
+            results.clear();
+            results.addAll(copy);
         }
     }
 
@@ -602,18 +623,30 @@ public final class InstanceRegistry {
     }
 
     private record CommandResult(PendingCommand pending, String instance, String status, long value, String message,
-                                 List<QueueEntry> entries, long completedAt) {
+                                 List<QueueEntry> entries, long completedAt, boolean entriesDropped) {
+        CommandResult(PendingCommand pending, String instance, String status, long value, String message,
+                      List<QueueEntry> entries, long completedAt) {
+            this(pending, instance, status, value, message, entries, completedAt, false);
+        }
+
+        CommandResult withoutEntries() {
+            return new CommandResult(pending, instance, status, value, message, List.of(), completedAt, true);
+        }
+
         void write(Json json) {
             json.beginObject().field("commandId", pending.id).field("instance", instance)
                     .field("serviceId", pending.key.serviceId()).field("methodId", pending.key.methodId())
                     .field("type", COMMAND_NAMES[pending.type]).field("status", status).field("value", value)
                     .field("message", message).field("createdAtMillis", pending.createdAt).field("completedAtMillis", completedAt)
-                    .field("actor", pending.actor);
+                    .field("actor", pending.actor).field("entriesDropped", entriesDropped);
             json.name("entries").beginArray();
             for (QueueEntry entry : entries) {
                 json.beginObject().field("entryId", entry.entryId()).field("state", entry.state()).field("attempts", entry.attempts())
                         .field("interruptions", entry.interruptions()).field("enqueuedAtMillis", entry.enqueuedAtMillis())
-                        .field("errorCategory", entry.errorCategory()).field("lastError", entry.lastError()).endObject();
+                        .field("errorCategory", entry.errorCategory()).field("lastError", entry.lastError())
+                        .field("lastErrorType", entry.lastErrorType()).field("summary", entry.summary())
+                        .field("payloadType", entry.payloadType()).field("payloadVersion", entry.payloadVersion())
+                        .field("codecId", entry.codecId()).endObject();
             }
             json.endArray().endObject();
         }

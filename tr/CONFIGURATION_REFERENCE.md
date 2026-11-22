@@ -70,6 +70,7 @@ Modül `asl-spring-boot-admin-client-starter`. Uygulamayı `asl-admin-server`'a 
 | `asl.admin.client.queue-browse` | `false` | Sunucunun kuyruk kayıtlarını listelemesine izin verir. Bu durumda kayıt özetleri ve hata metinleri pod dışına çıkar. |
 | `asl.admin.client.browse-limit` | `50` | Bir browse komutunda dönen en fazla kayıt (1–500). |
 | `asl.admin.client.max-error-chars` | `200` | Sunucuya gönderilen hata metinleri bu uzunlukta kesilir. |
+| `asl.admin.client.max-summary-chars` | `200` | Browse cevabıyla gönderilen payload özetleri bu uzunlukta kesilir (0–2000; `0` hiç göndermez). Özet, `asl.async.mapdb.payload.summary-policy` ayarının sakladığı değerdir: varsayılanda payload tipi, `CODEC` ile argümanların kısa metni. Payload'ın kendisi pod'dan hiç çıkmaz. |
 
 ## Merkezi Admin Server
 

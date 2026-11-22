@@ -31,6 +31,11 @@ public class AslAdminClientProperties {
     private int browseLimit = 50;
     /** Error texts sent to the admin server are cut to this many characters. */
     private int maxErrorChars = 200;
+    /**
+     * Payload summaries sent to the admin server are cut to this many characters; 0 sends none. What the
+     * summary holds is set by asl.async.mapdb.payload.summary-policy (type only by default, never the payload).
+     */
+    private int maxSummaryChars = 200;
 
     public boolean isEnabled() {
         return enabled;
@@ -126,5 +131,13 @@ public class AslAdminClientProperties {
 
     public void setMaxErrorChars(int maxErrorChars) {
         this.maxErrorChars = maxErrorChars;
+    }
+
+    public int getMaxSummaryChars() {
+        return maxSummaryChars;
+    }
+
+    public void setMaxSummaryChars(int maxSummaryChars) {
+        this.maxSummaryChars = maxSummaryChars;
     }
 }

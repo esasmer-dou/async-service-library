@@ -154,6 +154,10 @@ public final class AslAdminMessages {
         }
     }
 
+    /**
+     * One queued call as a browse answer shows it. Never the payload itself: {@code summary} is what the
+     * pod's {@code asl.async.mapdb.payload.summary-policy} stored (type only by default), already cut short.
+     */
     public record QueueEntry(
             String entryId,
             String state,
@@ -161,8 +165,18 @@ public final class AslAdminMessages {
             int interruptions,
             long enqueuedAtMillis,
             String errorCategory,
-            String lastError
+            String lastError,
+            String lastErrorType,
+            String summary,
+            String payloadType,
+            String payloadVersion,
+            String codecId
     ) {
+        /** An entry without payload details, as pods built before they were added send it. */
+        public QueueEntry(String entryId, String state, int attempts, int interruptions, long enqueuedAtMillis,
+                          String errorCategory, String lastError) {
+            this(entryId, state, attempts, interruptions, enqueuedAtMillis, errorCategory, lastError, null, null, null, null, null);
+        }
     }
 
     /** Server to pod, carried by a 200 answer to a beat. */

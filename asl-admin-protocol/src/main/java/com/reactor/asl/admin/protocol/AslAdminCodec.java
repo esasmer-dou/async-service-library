@@ -26,6 +26,8 @@ public final class AslAdminCodec {
     public static final int TYPE_BEAT_REPLY = 4;
 
     private static final int BEAT_HAS_CONFIG_ERROR = 4;
+    /** Queue entries carry five more strings: error type, summary, payload type, payload version, codec. */
+    private static final int BEAT_ENTRY_DETAILS = 8;
 
     private static final int REPLY_SEND_FULL = 1;
     private static final int REPLY_INTERVAL = 2;
@@ -108,6 +110,12 @@ public final class AslAdminCodec {
         if (message.configError() != null) {
             flags |= BEAT_HAS_CONFIG_ERROR;
         }
+        for (Ack ack : message.acks()) {
+            if (!ack.entries().isEmpty()) {
+                flags |= BEAT_ENTRY_DETAILS;
+                break;
+            }
+        }
         out.uvar(message.sessionId()).uvar(message.seq()).uvar(message.appliedConfigVersion()).u8(flags);
         if (message.configError() != null) {
             out.str(message.configError());
@@ -119,7 +127,9 @@ public final class AslAdminCodec {
             for (QueueEntry entry : ack.entries()) {
                 out.str(entry.entryId()).str(entry.state())
                         .uvar(nonNegative(entry.attempts())).uvar(nonNegative(entry.interruptions()))
-                        .svar(entry.enqueuedAtMillis()).str(entry.errorCategory()).str(entry.lastError());
+                        .svar(entry.enqueuedAtMillis()).str(entry.errorCategory()).str(entry.lastError())
+                        .str(entry.lastErrorType()).str(entry.summary()).str(entry.payloadType())
+                        .str(entry.payloadVersion()).str(entry.codecId());
             }
         }
         out.uvar(message.samples().size());
@@ -156,7 +166,13 @@ public final class AslAdminCodec {
             int entryCount = in.count();
             List<QueueEntry> entries = new ArrayList<>(entryCount);
             for (int e = 0; e < entryCount; e++) {
-                entries.add(new QueueEntry(in.str(), in.str(), in.uint(), in.uint(), in.svar(), in.str(), in.str()));
+                QueueEntry entry = new QueueEntry(in.str(), in.str(), in.uint(), in.uint(), in.svar(), in.str(), in.str());
+                if ((flags & BEAT_ENTRY_DETAILS) != 0) {
+                    entry = new QueueEntry(entry.entryId(), entry.state(), entry.attempts(), entry.interruptions(),
+                            entry.enqueuedAtMillis(), entry.errorCategory(), entry.lastError(),
+                            in.str(), in.str(), in.str(), in.str(), in.str());
+                }
+                entries.add(entry);
             }
             acks.add(new Ack(commandId, status, value, message, entries));
         }

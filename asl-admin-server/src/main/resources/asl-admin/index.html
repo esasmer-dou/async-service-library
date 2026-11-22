@@ -264,12 +264,22 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
 .label.click:hover { filter: brightness(.92); }
 
 /* ---- queue dialog ---- */
-.dialog.lg { max-width: 1040px; }
+.dialog.lg { max-width: 1240px; }
 .dialog .d-body.flush { padding: 0; color: var(--text); }
 .q-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 0 24px 16px; color: var(--text-2); font-size: 13px; }
 .q-wrap { overflow-x: auto; border-top: 1px dashed var(--divider); }
 .q-wrap .tbl { min-width: 760px; }
-.q-err { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.q-err { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.q-sum { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.icon-btn.del { color: var(--error); }
+.icon-btn.del:hover { background: rgb(var(--error-ch) / .12); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
+.q-wrap .tbl td { white-space: nowrap; }
+.tbl td.q-detail { padding: 0 16px 16px !important; background: rgb(var(--primary-ch) / .04); white-space: normal; }
+.q-dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 24px; margin: 0; padding: 16px; border-radius: 12px; background: var(--paper); box-shadow: var(--shadow-card); }
+.q-dl dt { color: var(--text-2); font-size: 13px; font-weight: 600; }
+.q-dl dd { margin: 0; white-space: pre-wrap; word-break: break-word; }
+.q-detail .hint { border-top: 0; padding: 10px 4px 0; }
 .spinner { width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgb(var(--grey-ch) / .32); border-top-color: var(--primary); animation: spin .8s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
@@ -760,6 +770,9 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       el("td", { class: "mono" }, c.instance), el("td", {}, short(c.methodId), el("span", { class: "sub" }, c.serviceId)),
       el("td", {}, label(c.status, c.status === "OK" ? "success" : c.status === "PENDING" ? "warning" : "error")),
       el("td", {}, c.message ? el("span", { class: c.status === "OK" ? "" : "err-text" }, c.message)
+        : c.type === "BROWSE_QUEUE" && c.status === "OK" && c.entriesDropped ? el("button", { class: "btn sm soft", type: "button",
+            title: "Only the newest answers keep their entries; this asks the replica again", onclick: () => openQueue(app, c, c.instance) }, icon("replay"),
+            `${c.value} ${c.value === 1 ? "entry" : "entries"} · Browse again`)
         : c.type === "BROWSE_QUEUE" && c.status === "OK" ? el("button", { class: "btn sm soft", type: "button", onclick: () => openQueue(app, c, c.instance, [c]) }, icon("eye"),
             `${c.entries.length} ${c.entries.length === 1 ? "entry" : "entries"} · View`)
         : c.type === "CLEAR_QUEUE" ? `${c.value} removed` : String(c.value)),
@@ -841,6 +854,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
     const appName = app.name, everyReplica = instance === "*";
     const status = el("div", { class: "q-status" }), wrap = el("div", { class: "q-wrap" });
     const base = { serviceId: m.serviceId, methodId: m.methodId };
+    const opened = new Set();
     let open = true, busy = false;
     const working = text => { status.replaceChildren(el("span", { class: "spinner" }), el("span", {}, text)); };
     const tone = s => s === "FAILED" ? "error" : s === "IN_PROGRESS" ? "info" : "warning";
@@ -855,27 +869,46 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       let listed = 0;
       for (const c of results) {
         if (c.status !== "OK") { notes.push(el("div", {}, el("span", { class: "mono strong" }, c.instance), " ", label(c.status, "error"), " ", el("span", { class: "err-text" }, c.message || ""))); continue; }
+        if (c.entriesDropped) { notes.push(el("div", {}, el("span", { class: "mono" }, c.instance), ": answered, but its entries are no longer kept on the server; refresh or browse this replica alone.")); continue; }
         listed += c.entries.length;
         const total = held(c.instance);
         if (total !== null && total > c.entries.length) notes.push(el("div", {}, el("span", { class: "mono" }, c.instance), `: first ${c.entries.length} of ${total} entries`));
-        for (const e of c.entries) rows.push(el("tr", { class: "row" },
-          everyReplica ? el("td", { class: "mono" }, c.instance) : null,
-          el("td", { class: "mono strong" }, "#" + e.entryId),
-          el("td", { class: "nowrap" }, label(e.state, tone(e.state)), e.interruptions ? label(`interrupted ×${e.interruptions}`, "warning") : null),
-          el("td", { class: "num" }, e.attempts),
-          el("td", { class: "nowrap" }, e.enqueuedAtMillis ? new Date(e.enqueuedAtMillis).toLocaleString() : "—"),
-          el("td", {}, e.lastError ? el("span", { class: "err-text q-err", title: e.lastError }, (e.errorCategory ? e.errorCategory + " · " : "") + e.lastError)
-            : el("span", { class: "muted" }, "—")),
-          el("td", { class: "act" }, el("div", { class: "btn-row" },
-            el("button", { class: "btn sm soft", type: "button", disabled: e.state === "IN_PROGRESS", onclick: () => act("REPLAY_ENTRY", c.instance, e) }, icon("replay"), "Replay"),
-            el("button", { class: "btn sm soft error", type: "button", disabled: e.state === "IN_PROGRESS", onclick: () => act("DELETE_ENTRY", c.instance, e) }, icon("trash"), "Delete")))));
+        for (const e of c.entries) {
+          const key = c.instance + "#" + e.entryId, isOpen = opened.has(key);
+          const toggle = el("button", { class: "icon-btn sm" + (isOpen ? " on" : ""), type: "button", "aria-label": isOpen ? "Hide details" : "Show details",
+            onclick: () => { isOpen ? opened.delete(key) : opened.add(key); show(results, missing); } }, icon("chevron"));
+          if (isOpen) toggle.firstChild.style.transform = "rotate(90deg)";
+          const meta = [e.payloadType, e.payloadVersion ? "v" + e.payloadVersion : null, e.codecId].filter(Boolean).join(" · ");
+          rows.push(el("tr", { class: "row" + (isOpen ? " open" : "") },
+            el("td", { style: "width:44px" }, toggle),
+            everyReplica ? el("td", { class: "mono" }, c.instance) : null,
+            el("td", { class: "mono strong" }, "#" + e.entryId),
+            el("td", { class: "nowrap" }, label(e.state, tone(e.state)), e.interruptions ? label(`interrupted ×${e.interruptions}`, "warning") : null),
+            el("td", { class: "num" }, e.attempts),
+            el("td", { class: "nowrap" }, e.enqueuedAtMillis ? new Date(e.enqueuedAtMillis).toLocaleString() : "—"),
+            el("td", {}, e.summary ? el("span", { class: "mono q-sum", title: e.summary }, e.summary) : el("span", { class: "muted" }, "—"),
+              meta ? el("span", { class: "sub" }, meta) : null),
+            el("td", {}, e.lastError ? el("span", { class: "err-text q-err", title: e.lastError }, (e.errorCategory ? e.errorCategory + " · " : "") + e.lastError)
+              : el("span", { class: "muted" }, "—")),
+            el("td", { class: "act" }, el("div", { class: "btn-row" },
+              el("button", { class: "btn sm soft", type: "button", title: "Run this entry again", disabled: e.state === "IN_PROGRESS", onclick: () => act("REPLAY_ENTRY", c.instance, e) }, icon("replay"), "Replay"),
+              el("button", { class: "icon-btn sm del", type: "button", title: "Delete this entry", "aria-label": "Delete this entry", disabled: e.state === "IN_PROGRESS", onclick: () => act("DELETE_ENTRY", c.instance, e) }, icon("trash"))))));
+          if (isOpen) {
+            const item = (k, v, mono) => [el("dt", {}, k), el("dd", { class: mono ? "mono" : "" }, v == null || v === "" ? el("span", { class: "muted" }, "—") : String(v))];
+            rows.push(el("tr", {}, el("td", { colspan: everyReplica ? 9 : 8, class: "q-detail" }, el("dl", { class: "q-dl" },
+              item("Payload summary", e.summary, true), item("Payload type", e.payloadType, true), item("Payload version", e.payloadVersion, true),
+              item("Codec", e.codecId, true), item("Error category", e.errorCategory), item("Error type", e.lastErrorType, true),
+              item("Last error", e.lastError, true), item("Interruptions", e.interruptions), item("Replica", c.instance, true)),
+              el("div", { class: "hint" }, "The summary is what the replica stored under asl.async.mapdb.payload.summary-policy (type only by default). The payload itself never leaves the replica."))));
+          }
+        }
       }
       const answered = results.length;
       status.replaceChildren(...[label(`${listed} ${listed === 1 ? "entry" : "entries"}`, listed ? "info" : "success"),
         el("span", {}, `${answered} ${answered === 1 ? "replica" : "replicas"} answered · read ${new Date().toLocaleTimeString()}`),
         missing ? label(`${missing} not answered yet`, "warning") : null].filter(Boolean));
       if (notes.length) status.append(el("div", { style: "flex-basis:100%" }, notes));
-      const head = [everyReplica ? "Replica" : null, "Entry", "State", "#Attempts", "Enqueued", "Last error", ""].filter(h => h !== null);
+      const head = ["", everyReplica ? "Replica" : null, "Entry", "State", "#Attempts", "Enqueued", "Payload summary", "Last error", ""].filter(h => h !== null);
       wrap.replaceChildren(rows.length ? table("dense", head, rows) : empty("check", "success", "Queue is empty", everyReplica ? "No replica holds an entry for this method." : `${instance} holds no entry for this method.`));
     }
     async function browse() {
@@ -883,7 +916,10 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       busy = true;
       working(everyReplica ? "Asking every replica… answers arrive with the next heartbeat (about 2 s)." : `Asking ${instance}… the answer arrives with its next heartbeat (about 2 s).`);
       try {
-        const r = await runCommand(appName, { ...base, instance, type: "BROWSE_QUEUE", limit: 50 }, () => open);
+        // The server keeps about 500 entries per application, so a browse of every replica asks each for its share.
+        const replicas = Math.max(1, ((lastApp && lastApp.name === appName ? lastApp : app).instances || []).length);
+        const limit = everyReplica ? Math.max(5, Math.min(50, Math.floor(500 / replicas))) : 50;
+        const r = await runCommand(appName, { ...base, instance, type: "BROWSE_QUEUE", limit }, () => open);
         if (open) show(r.done, r.ids.length - r.done.length);
       } catch (e) { status.replaceChildren(label("Error", "error"), el("span", { class: "err-text" }, e.message)); }
       busy = false;

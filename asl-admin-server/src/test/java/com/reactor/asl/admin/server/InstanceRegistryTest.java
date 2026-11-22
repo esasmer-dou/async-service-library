@@ -190,12 +190,16 @@ class InstanceRegistryTest {
         assertTrue(registry.beat(beat(a.sessionId(), 2, 0, 0), now + 1_000).isEmpty(), "not resent too early");
         assertEquals(1, registry.beat(beat(a.sessionId(), 3, 0, 0), now + 31_000).commands().size());
 
-        Ack ack = new Ack(ids.get(0), Ack.OK, 1, null, List.of(new QueueEntry("9", "FAILED", 3, 0, 5, "TIMEOUT", "late")));
+        Ack ack = new Ack(ids.get(0), Ack.OK, 1, null, List.of(new QueueEntry("9", "FAILED", 3, 0, 5, "TIMEOUT", "late",
+                "java.util.concurrent.TimeoutException", "Order#42", "Order", "v2", "jackson-json")));
         assertTrue(registry.beat(new Beat(a.sessionId(), 4, 0, 0, null, List.of(ack), List.of()), now + 32_000).isEmpty());
         String json = detail();
         assertTrue(json.contains("\"status\":\"OK\""), json);
         assertTrue(json.contains("\"status\":\"PENDING\""), json);
         assertTrue(json.contains("\"entryId\":\"9\""), json);
+        assertTrue(json.contains("\"summary\":\"Order#42\""), json);
+        assertTrue(json.contains("\"payloadVersion\":\"v2\""), json);
+        assertTrue(json.contains("\"lastErrorType\":\"java.util.concurrent.TimeoutException\""), json);
 
         registry.beat(beat(b.sessionId(), 1, 0, Beat.FULL), now);
         registry.maintain(now + 11_000);
@@ -210,6 +214,29 @@ class InstanceRegistryTest {
         }
         assertThrows(InstanceRegistry.CapacityExceededException.class,
                 () -> registry.enqueueCommand("orders", "orders-a", CREATE, Command.RESET_OBSERVATIONS, null, 0, "b", now));
+    }
+
+    @Test
+    void onlyTheNewestBrowseAnswersKeepTheirEntries() {
+        RegisterReply a = register("orders-a");
+        int seq = 1;
+        registry.beat(beat(a.sessionId(), seq++, 0, Beat.FULL), now);
+        int perAnswer = InstanceRegistry.RETAINED_QUEUE_ENTRIES / 4;
+        int rounds = 6;
+        for (int i = 0; i < rounds; i++) {
+            long id = registry.enqueueCommand("orders", "orders-a", CREATE, Command.BROWSE_QUEUE, null, 5, "b", now).get(0);
+            List<QueueEntry> entries = new java.util.ArrayList<>();
+            for (int e = 0; e < perAnswer; e++) {
+                entries.add(new QueueEntry(i + "-" + e, "FAILED", 1, 0, 5, "BUSINESS", "x", "E", "summary-" + i, "Order", "1", "json"));
+            }
+            registry.beat(new Beat(a.sessionId(), seq++, 0, 0, null, List.of(new Ack(id, Ack.OK, perAnswer, null, entries)), List.of()), now);
+        }
+        String json = detail();
+        assertTrue(json.contains("\"summary-5\""), json);
+        assertTrue(json.contains("\"summary-2\""), "the newest four answers fit the budget");
+        assertFalse(json.contains("\"summary-1\""), json);
+        assertFalse(json.contains("\"summary-0\""), json);
+        assertEquals(2, json.split("\"entriesDropped\":true", -1).length - 1);
     }
 
     @Test

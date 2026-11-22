@@ -38,5 +38,9 @@ asl:
       transactions-enabled: true
       memory-mapped-enabled: false
       corruption-policy: ARCHIVE_AND_RESET
+      payload:
+        # The sample shows argument summaries in the admin portal's queue dialog. The default, TYPE_ONLY,
+        # stores only the payload type; CODEC stores a short text of the arguments, which can hold business data.
+        summary-policy: CODEC
       admission:
         max-concurrent-enqueues: 64
