@@ -140,5 +140,20 @@ public class AslRuntimeProperties {
         public void setConsumerThreads(Integer consumerThreads) {
             this.consumerThreads = consumerThreads;
         }
+
+        private Integer rateLimit;
+
+        /**
+         * Calls per second on each replica; 0 or omitted means no limit. SYNC calls over the limit
+         * are rejected with reason RATE_LIMIT; in ASYNC mode calls are queued and consumers start at
+         * most this many executions per second.
+         */
+        public Integer getRateLimit() {
+            return rateLimit;
+        }
+
+        public void setRateLimit(Integer rateLimit) {
+            this.rateLimit = rateLimit;
+        }
     }
 }

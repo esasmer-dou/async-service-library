@@ -51,6 +51,7 @@ asl:
 | `.unavailable-message` | annotation/runtime varsayılanı | Disabled çağrıya dönen mesajı değiştirir. |
 | `.execution-mode` | `SYNC` | `SYNC` veya `ASYNC`; async için uygun `void` metot ve engine gerekir. |
 | `.consumer-threads` | annotation değeri | Lane consumer hedefini belirler; sıfır değeri iş kabul eder fakat tüketmez. |
+| `.rate-limit` | `0` (sınır yok) | Replica başına saniyedeki çağrı sayısı. SYNC modda sınırı aşan çağrı `RATE_LIMIT` sebebiyle reddedilir. ASYNC modda çağrılar yine kuyruğa alınır; consumer'lar saniyede en fazla bu kadar çalıştırma başlatır. Bir saniyelik çağrı tek seferde (burst) çalışabilir. Negatif değer startup'ı durdurur. |
 
 ## Merkezi Admin Client
 

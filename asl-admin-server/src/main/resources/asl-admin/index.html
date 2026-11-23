@@ -314,7 +314,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
 (() => {
   "use strict";
   // Sample layout sent by the server, one array per replica and method.
-  const STATE = 0, MAX = 1, CONSUMERS = 2, IN_FLIGHT = 3, SUCCESS = 4, ERROR = 5, REJECTED = 6, Q_PENDING = 7, Q_FAILED = 8, Q_RUNNING = 9;
+  const STATE = 0, MAX = 1, CONSUMERS = 2, IN_FLIGHT = 3, SUCCESS = 4, ERROR = 5, REJECTED = 6, Q_PENDING = 7, Q_FAILED = 8, Q_RUNNING = 9, RATE = 10;
   const ENABLED = 1, ASYNC = 2;
   const api = "/asl-admin/api";
   const SVG = "http://www.w3.org/2000/svg";
@@ -379,7 +379,9 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
   const describe = s => !s ? null : [s.enabled === false ? "disabled" : s.enabled === true ? "enabled" : null,
       s.async === true ? "ASYNC" : s.async === false ? "SYNC" : null,
       s.maxConcurrency != null ? "max " + s.maxConcurrency : null,
-      s.consumerThreads != null ? "consumers " + s.consumerThreads : null].filter(Boolean).join(" · ");
+      s.consumerThreads != null ? "consumers " + s.consumerThreads : null,
+      s.rateLimit != null ? (s.rateLimit === 0 ? "no rate limit" : "rate " + s.rateLimit + "/s") : null].filter(Boolean).join(" · ");
+  const rate = v => v ? v + "/s" : "—";
 
   // ---- theme ----
   function applyTheme(mode) {
@@ -782,7 +784,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
   }
 
   function detail(app, m, idx, insts) {
-    const per = table("dense", ["Replica", "Enabled", "Mode", "#Max", "#Consumers", "#In flight", "#Errors", "#Queue pending / failed / running", "Replica override", ""],
+    const per = table("dense", ["Replica", "Enabled", "Mode", "#Max", "#Consumers", "#Rate limit", "#In flight", "#Errors", "#Queue pending / failed / running", "Replica override", ""],
       insts.filter(i => i.samples[idx]).map(i => {
         const s = i.samples[idx], own = describe(i.overrides[idx]);
         return el("tr", { class: "row" },
@@ -790,7 +792,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
           el("td", {}, s[STATE] & ENABLED ? label("On", "success") : label("Off", "error")),
           el("td", {}, s[STATE] & ASYNC ? label("ASYNC", "primary") : label("SYNC", "default")),
           el("td", { class: "num" }, s[MAX] >= 2147483647 ? "∞" : s[MAX]), el("td", { class: "num" }, s[CONSUMERS]),
-          el("td", { class: "num" }, s[IN_FLIGHT]), el("td", { class: "num" + (s[ERROR] ? " err-text" : "") }, s[ERROR]),
+          el("td", { class: "num" }, rate(s[RATE])), el("td", { class: "num" }, s[IN_FLIGHT]), el("td", { class: "num" + (s[ERROR] ? " err-text" : "") }, s[ERROR]),
           el("td", { class: "num" }, m.hasQueue ? `${s[Q_PENDING]} / ${s[Q_FAILED]} / ${s[Q_RUNNING]}` : "—"),
           el("td", {}, own ? label(own, "info", "tune") : el("span", { class: "muted" }, "—")),
           el("td", { class: "act" }, el("div", { class: "btn-row" },
@@ -815,7 +817,9 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       field("enabled", "Method", select("enabled", s.enabled, "Running", "Stopped")),
       m.asyncCapable ? field("async", "Execution mode", select("async", s.async, "ASYNC", "SYNC")) : null,
       field("maxConcurrency", "Max concurrency", el("input", { name: "maxConcurrency", id: "f-maxConcurrency", type: "number", min: 1, value: s.maxConcurrency ?? "", placeholder: "keep" }), "Per replica"),
-      m.asyncCapable ? field("consumerThreads", "Consumer threads", el("input", { name: "consumerThreads", id: "f-consumerThreads", type: "number", min: 0, value: s.consumerThreads ?? "", placeholder: "keep" }), "0 keeps work queued") : null);
+      m.asyncCapable ? field("consumerThreads", "Consumer threads", el("input", { name: "consumerThreads", id: "f-consumerThreads", type: "number", min: 0, value: s.consumerThreads ?? "", placeholder: "keep" }), "0 keeps work queued") : null,
+      field("rateLimit", "Rate limit (calls/s)", el("input", { name: "rateLimit", id: "f-rateLimit", type: "number", min: 0, value: s.rateLimit ?? "", placeholder: "keep" }),
+        m.asyncCapable ? "Per replica. SYNC rejects above it, ASYNC consumers slow down. 0 removes a limit." : "Per replica. Calls above it are rejected. 0 removes a limit."));
     let close = () => {};
     async function save() {
       const body = { serviceId: m.serviceId, methodId: m.methodId };

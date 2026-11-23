@@ -43,6 +43,8 @@ public final class MethodUnavailableException extends RuntimeException {
         /** The method was stopped by an operator or by its initial configuration. */
         DISABLED,
         /** The method reached its concurrency limit. */
-        CONCURRENCY_LIMIT
+        CONCURRENCY_LIMIT,
+        /** The method reached its calls-per-second limit (SYNC mode; ASYNC calls are queued instead). */
+        RATE_LIMIT
     }
 }

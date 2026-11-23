@@ -108,16 +108,14 @@ public final class MethodRuntime {
     }
 
     public synchronized void enable() {
-        MethodPolicy current = policy;
-        updatePolicy(MethodPolicy.enabled(current.maxConcurrency(), current.unavailableMessage()));
+        updatePolicy(policy.withEnabled(true));
     }
 
     public synchronized void disable(String unavailableMessage) {
-        MethodPolicy current = policy;
         String message = unavailableMessage == null || unavailableMessage.isBlank()
                 ? defaults.unavailableMessage()
                 : unavailableMessage;
-        updatePolicy(MethodPolicy.disabled(message, current.maxConcurrency()));
+        updatePolicy(policy.withEnabled(false).withUnavailableMessage(message));
     }
 
     public synchronized void setUnavailableMessage(String unavailableMessage) {
@@ -129,6 +127,15 @@ public final class MethodRuntime {
 
     public synchronized void setMaxConcurrency(int maxConcurrency) {
         updatePolicy(policy.withMaxConcurrency(maxConcurrency));
+    }
+
+    /**
+     * Calls per second on this replica; {@link MethodPolicy#NO_RATE_LIMIT} removes the limit. A SYNC
+     * call over the limit is rejected; in ASYNC mode the queue accepts the call and consumers start
+     * at most this many executions per second.
+     */
+    public synchronized void setRateLimitPerSecond(int rateLimitPerSecond) {
+        updatePolicy(policy.withRateLimitPerSecond(rateLimitPerSecond));
     }
 
     public void switchMode(ExecutionMode executionMode) {
@@ -160,10 +167,80 @@ public final class MethodRuntime {
                 return false;
             }
             if (inFlight.compareAndSet(currentInFlight, currentInFlight + 1)) {
+                // The rate permit is taken only once a concurrency slot is held, so a concurrency
+                // rejection never burns a permit.
+                if (current.rateLimited() && !tryTakeRatePermit(current.rateLimitPerSecond(), System.nanoTime())) {
+                    inFlight.decrementAndGet();
+                    rejectedCount.increment();
+                    return false;
+                }
                 updatePeakInFlight(currentInFlight + 1);
                 return true;
             }
         }
+    }
+
+    // ---- rate limit: GCRA (virtual scheduling), lock-free, one CAS per permit ----
+    // tat is the theoretical arrival time of the next permit. A burst of up to one second of
+    // permits is allowed (e.g. 50 at once for 50/s), then permits come at the configured rate.
+    private final AtomicLong rateTat = new AtomicLong(Long.MIN_VALUE);
+
+    private boolean tryTakeRatePermit(int ratePerSecond, long nowNanos) {
+        return reserveRatePermitNanos(ratePerSecond, nowNanos) == 0L;
+    }
+
+    /** Takes a permit and returns 0, or returns how long to wait (nanoseconds) without taking one. */
+    private long reserveRatePermitNanos(int ratePerSecond, long nowNanos) {
+        long interval = Math.max(1L, 1_000_000_000L / ratePerSecond);
+        long tolerance = 1_000_000_000L - interval;
+        while (true) {
+            long tat = rateTat.get();
+            long base = tat == Long.MIN_VALUE || tat - nowNanos < 0 ? nowNanos : tat;
+            long ahead = base - nowNanos;
+            if (ahead > tolerance) {
+                return ahead - tolerance;
+            }
+            if (rateTat.compareAndSet(tat, base + interval)) {
+                return 0L;
+            }
+        }
+    }
+
+    /**
+     * For async consumers: takes a rate permit and returns 0, or returns the nanoseconds to wait
+     * before the next one. Always 0 when the method has no rate limit.
+     */
+    public long reserveAsyncRatePermitNanos() {
+        MethodPolicy current = policy;
+        return current.rateLimited() ? reserveRatePermitNanos(current.rateLimitPerSecond(), System.nanoTime()) : 0L;
+    }
+
+    /** Gives back a permit taken with {@link #reserveAsyncRatePermitNanos()} that was not used. */
+    public void returnAsyncRatePermit() {
+        MethodPolicy current = policy;
+        if (!current.rateLimited()) {
+            return;
+        }
+        long interval = Math.max(1L, 1_000_000_000L / current.rateLimitPerSecond());
+        long now = System.nanoTime();
+        while (true) {
+            long tat = rateTat.get();
+            if (tat == Long.MIN_VALUE || tat - now <= 0L) {
+                return; // already fully replenished
+            }
+            if (rateTat.compareAndSet(tat, tat - interval)) {
+                return;
+            }
+        }
+    }
+
+    private boolean rateExhausted(MethodPolicy current, long nowNanos) {
+        if (!current.rateLimited()) {
+            return false;
+        }
+        long interval = Math.max(1L, 1_000_000_000L / current.rateLimitPerSecond());
+        long tat = rateTat.get();
+        return tat != Long.MIN_VALUE && tat - nowNanos > 1_000_000_000L - interval;
     }
 
     public void onSuccess() {
@@ -285,6 +362,15 @@ public final class MethodRuntime {
                     false
             );
         }
+        if (rateExhausted(current, System.nanoTime())) {
+            return new MethodUnavailableException(
+                    serviceId,
+                    methodId,
+                    rateLimitMessage(current),
+                    MethodUnavailableException.Reason.RATE_LIMIT,
+                    false
+            );
+        }
         return new MethodUnavailableException(
                 serviceId,
                 methodId,
@@ -310,6 +396,18 @@ public final class MethodRuntime {
     }
 
     private record LimitMessage(MethodPolicy policy, RuntimeDefaults defaults, String message) {
+    }
+
+    private volatile LimitMessage rateMessage;
+
+    private String rateLimitMessage(MethodPolicy current) {
+        LimitMessage cached = rateMessage;
+        if (cached != null && cached.policy == current) {
+            return cached.message;
+        }
+        String message = "Method reached its rate limit of " + current.rateLimitPerSecond() + " calls per second";
+        rateMessage = new LimitMessage(current, defaults, message);
+        return message;
     }
 
     public MethodStatsSnapshot stats() {

@@ -145,13 +145,18 @@ class AdminStoreTest {
     void settingTextFormAndJsonEscaping() {
         assertEquals("", MethodSetting.NONE.toText());
         assertEquals(new MethodSetting(false, null, null, 2), MethodSetting.parse("enabled=false; consumers=2"));
+        MethodSetting rated = new MethodSetting(null, null, 4, null, 25);
+        assertEquals("max=4;rate=25", rated.toText());
+        assertEquals(rated, MethodSetting.parse(rated.toText()));
+        assertFalse(new MethodSetting(null, null, null, null, 0).isEmpty(), "rate 0 removes a yml limit");
+        assertThrows(IllegalArgumentException.class, () -> new MethodSetting(null, null, null, null, -1));
         assertThrows(IllegalArgumentException.class, () -> MethodSetting.parse("enabled"));
         assertThrows(IllegalArgumentException.class, () -> MethodSetting.parse("colour=red"));
         String json = new Json().beginObject().field("a", "q\"<\\\n\t\u0001").field("n", (String) null).field("b", Boolean.TRUE)
                 .field("i", (Integer) null).name("list").beginArray().value(1).value(2).endArray()
                 .setting("s", null).setting("t", new MethodSetting(true, null, 3, null)).endObject().toString();
         assertEquals("{\"a\":\"q\\\"\\u003c\\\\\\n\\t\\u0001\",\"n\":null,\"b\":true,\"i\":null,\"list\":[1,2],\"s\":null,"
-                + "\"t\":{\"enabled\":true,\"async\":null,\"maxConcurrency\":3,\"consumerThreads\":null}}", json);
+                + "\"t\":{\"enabled\":true,\"async\":null,\"maxConcurrency\":3,\"consumerThreads\":null,\"rateLimit\":null}}", json);
         assertArrayEquals(new long[]{1}, new long[]{1});
     }
 }

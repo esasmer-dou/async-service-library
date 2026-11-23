@@ -84,10 +84,21 @@ class AslRuntimeMethodOverridesApplierTest {
                         methods:
                           "[send(java.lang.String)]":
                             max-concurrency: 6
+                            rate-limit: 25
                 """);
         GovernanceRegistry registry = registry();
         new AslRuntimeMethodOverridesApplier(registry, bind(environment), environment).afterSingletonsInstantiated();
         assertEquals(6, registry.service(SERVICE).methodById(SYNC).policy().maxConcurrency());
+        assertEquals(25, registry.service(SERVICE).methodById(SYNC).policy().rateLimitPerSecond());
+    }
+
+    @Test
+    void negativeRateLimitFailsFast() {
+        AslRuntimeProperties properties = bind(Map.of(
+                "asl.runtime.services[mail.service].methods[send(java.lang.String)].rate-limit", "-5"));
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new AslRuntimeMethodOverridesApplier(registry(), properties).afterSingletonsInstantiated());
+        assertTrue(failure.getMessage().contains("rate-limit"), failure.getMessage());
     }
 
     @Test

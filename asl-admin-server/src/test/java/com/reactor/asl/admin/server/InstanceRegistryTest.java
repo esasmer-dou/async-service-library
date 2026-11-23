@@ -124,7 +124,7 @@ class InstanceRegistryTest {
         assertTrue(registry.beat(beat(a.sessionId(), 2, 0, 0), now).isEmpty());
 
         String json = detail();
-        assertTrue(json.contains("\"samples\":[[3,20,0,3,0,0,0,0,1,0],null]"), json);
+        assertTrue(json.contains("\"samples\":[[3,20,0,3,0,0,0,0,1,0,0],null]"), json);
         Json apps = new Json();
         registry.writeApplications(apps);
         assertTrue(apps.toString().contains("\"queueFailed\":1"), apps.toString());

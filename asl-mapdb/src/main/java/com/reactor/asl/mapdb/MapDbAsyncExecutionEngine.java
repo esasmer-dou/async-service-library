@@ -68,6 +68,7 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
     private final LongAdder workerFailures = new LongAdder();
     private final LongAdder rejectedSchedules = new LongAdder();
     private final LongAdder executionTimeouts = new LongAdder();
+    private final LongAdder rateLimitedSchedules = new LongAdder();
     private final LongAdder reclaimedLeases = new LongAdder();
     private final LongAdder releasedOnShutdown = new LongAdder();
     private final AtomicReference<String> lastWorkerFailure = new AtomicReference<>();
@@ -327,6 +328,11 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         for (MethodRegistration registration : registrations.values()) {
             listener.accept(registration.runtime.serviceId(), registration.runtime.methodId());
         }
+    }
+
+    /** Times a consumer waited for a rate-limit permit instead of starting an execution. */
+    public long rateLimitedSchedules() {
+        return rateLimitedSchedules.sum();
     }
 
     /** Executions interrupted by the execution-timeout watchdog. */
@@ -771,7 +777,14 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                     options.maxWorkerThreads(),
                     Math.min(runtime.consumerThreads(), runtime.policy().maxConcurrency())
             );
-            while (control.active.get() < desired
+            // Stop as soon as a worker pushed the lane back (rate limit, concurrency). A rate-limited lane
+            // also gets at most `desired` dispatches per pass: a worker that finds no permit returns at
+            // once and frees its slot, which would otherwise make this loop dispatch again and again.
+            int passLimit = runtime.policy().rateLimited() ? desired : Integer.MAX_VALUE;
+            int dispatched = 0;
+            while (dispatched < passLimit
+                    && control.active.get() < desired
+                    && control.nextScheduleNanos.get() <= System.nanoTime()
                     && queueStore.hasPending(runtime.serviceId(), runtime.methodId())) {
                 int current = control.active.get();
                 if (current >= desired || !control.active.compareAndSet(current, current + 1)) {
@@ -779,6 +792,7 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 }
                 try {
                     workers.execute(() -> processOne(entry.getKey(), registration, control));
+                    dispatched++;
                 } catch (RejectedExecutionException rejected) {
                     control.active.decrementAndGet();
                     rejectedSchedules.increment();
@@ -803,12 +817,29 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 );
                 return;
             }
-            control.nextScheduleNanos.set(0L);
             runtimeAcquired = true;
+            // Rate limit in ASYNC mode: the queue absorbs the calls and consumers start at most N per second.
+            long rateWaitNanos = runtime.reserveAsyncRatePermitNanos();
+            if (rateWaitNanos > 0L) {
+                rateLimitedSchedules.increment();
+                // Keep the later deadline: a worker that just got a permit must not clear this wait,
+                // or the coordinator would keep dispatching workers that only find no permit.
+                long due = System.nanoTime() + rateWaitNanos;
+                control.nextScheduleNanos.accumulateAndGet(due, Math::max);
+                return;
+            }
+            boolean ratePermitTaken = runtime.policy().rateLimited();
+            if (!ratePermitTaken) {
+                control.nextScheduleNanos.set(0L);
+            }
             claimed = internalWrite(
                     () -> queueStore.claimNext(runtime.serviceId(), runtime.methodId(), System.currentTimeMillis())
             ).orElse(null);
             if (claimed == null) {
+                if (ratePermitTaken) {
+                    // Nothing to run (another consumer took the last entry): the permit was not used.
+                    runtime.returnAsyncRatePermit();
+                }
                 return;
             }
             lease = new ActiveLease(claimed.invocationId(), claimed.leaseToken(), Thread.currentThread(), System.nanoTime());
@@ -980,6 +1011,15 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 ? idleWait
                 : Math.max(1L, retryAt - nowEpochMillis);
         long wait = Math.min(idleWait, retryWait);
+        // A lane held back by its rate limit (or a requeue delay) is due again at nextScheduleNanos:
+        // wake up then instead of after the idle interval, or the rate would be far below the limit.
+        long nowNanos = System.nanoTime();
+        for (LaneControl control : laneControls.values()) {
+            long due = control.nextScheduleNanos.get();
+            if (due != 0L && due - nowNanos > 0L) {
+                wait = Math.min(wait, Math.max(1L, TimeUnit.NANOSECONDS.toMillis(due - nowNanos) + 1L));
+            }
+        }
         if (options.executionTimeoutMillis() > 0L && !activeLeases.isEmpty()) {
             wait = Math.min(wait, Math.max(10L, options.executionTimeoutMillis() / 4L));
         }

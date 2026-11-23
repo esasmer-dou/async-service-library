@@ -74,6 +74,12 @@ final class AslRuntimeMethodOverridesApplier implements SmartInitializingSinglet
         if (overrides.getMaxConcurrency() != null) {
             runtime.setMaxConcurrency(overrides.getMaxConcurrency());
         }
+        if (overrides.getRateLimit() != null) {
+            if (overrides.getRateLimit() < 0) {
+                throw new IllegalStateException("asl.runtime.services sets a negative rate-limit for " + serviceId + "::" + methodId);
+            }
+            runtime.setRateLimitPerSecond(overrides.getRateLimit());
+        }
         if (overrides.getConsumerThreads() != null) {
             runtime.setConsumerThreads(overrides.getConsumerThreads());
         }

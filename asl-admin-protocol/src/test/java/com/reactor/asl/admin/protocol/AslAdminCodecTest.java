@@ -92,8 +92,11 @@ class AslAdminCodecTest {
         ConfigBlock config = new ConfigBlock(5, List.of(
                 new MethodOverride(0, false, true, 20, 4),
                 new MethodOverride(1, true, null, null, null),
-                new MethodOverride(1, false, null, 3, null, true)
+                new MethodOverride(1, false, null, 3, null, true),
+                new MethodOverride(2, null, null, null, null, false, 50),
+                new MethodOverride(2, null, null, null, null, true, 0)
         ));
+        assertFalse(config.overrides().get(4).isEmpty(), "a rate of 0 lifts a configured limit, so it is not empty");
         RegisterReply withConfig = new RegisterReply(77, 15_000, config);
         RegisterReply withoutConfig = new RegisterReply(78, 15_000, null);
         assertEquals(withConfig, AslAdminCodec.decodeRegisterReply(AslAdminCodec.encode(withConfig)));

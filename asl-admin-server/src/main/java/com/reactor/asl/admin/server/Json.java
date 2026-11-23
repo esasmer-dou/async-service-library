@@ -96,7 +96,8 @@ final class Json {
             return this;
         }
         return beginObject().field("enabled", setting.enabled()).field("async", setting.async())
-                .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads()).endObject();
+                .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads())
+                .field("rateLimit", setting.rateLimit()).endObject();
     }
 
     @Override

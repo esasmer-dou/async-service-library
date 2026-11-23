@@ -76,7 +76,9 @@ public final class AslAdminMessages {
         public static final int QUEUE_PENDING = 7;
         public static final int QUEUE_FAILED = 8;
         public static final int QUEUE_IN_PROGRESS = 9;
-        public static final int FIELD_COUNT = 10;
+        /** Effective calls-per-second limit on the replica; 0 when unlimited. */
+        public static final int RATE_LIMIT = 10;
+        public static final int FIELD_COUNT = 11;
 
         /** {@link #STATE} bit: method is enabled. */
         public static final int STATE_ENABLED = 1;
@@ -217,14 +219,21 @@ public final class AslAdminMessages {
             Boolean async,
             Integer maxConcurrency,
             Integer consumerThreads,
-            boolean instanceScoped
+            boolean instanceScoped,
+            /** Calls per second; 0 means "no limit", which also removes a limit from the application's configuration. */
+            Integer rateLimit
     ) {
         public MethodOverride(int methodIndex, Boolean enabled, Boolean async, Integer maxConcurrency, Integer consumerThreads) {
-            this(methodIndex, enabled, async, maxConcurrency, consumerThreads, false);
+            this(methodIndex, enabled, async, maxConcurrency, consumerThreads, false, null);
+        }
+
+        public MethodOverride(int methodIndex, Boolean enabled, Boolean async, Integer maxConcurrency, Integer consumerThreads,
+                              boolean instanceScoped) {
+            this(methodIndex, enabled, async, maxConcurrency, consumerThreads, instanceScoped, null);
         }
 
         public boolean isEmpty() {
-            return enabled == null && async == null && maxConcurrency == null && consumerThreads == null;
+            return enabled == null && async == null && maxConcurrency == null && consumerThreads == null && rateLimit == null;
         }
     }
 

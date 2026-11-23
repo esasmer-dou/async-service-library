@@ -92,6 +92,8 @@ class AslAdminClientTest {
         assertEquals(2, first.samples().size());
         assertEquals(10, first.samples().get(0).value(MethodSample.MAX_CONCURRENCY));
         assertEquals(3, first.samples().get(0).value(MethodSample.QUEUE_PENDING));
+        assertFalse(first.samples().get(0).has(MethodSample.RATE_LIMIT),
+                "no rate limit: the field stays out so admin servers that predate it can read the beat");
 
         transport.reply(204, new byte[0]);
         client.runOnce();
@@ -145,6 +147,33 @@ class AslAdminClientTest {
         assertTrue(find.policy().enabled());
         assertEquals(8, client.appliedConfigVersion());
         assertEquals(2_000, client.currentIntervalMillis());
+    }
+
+    @Test
+    void appliesRateLimitReportsItAndRestoresTheConfiguredValue() throws Exception {
+        create.setRateLimitPerSecond(7); // as if set in the application's yml
+        AslAdminClient client = client(false);
+        transport.reply(200, AslAdminCodec.encode(new RegisterReply(5, 15_000, new ConfigBlock(2, List.of(
+                new MethodOverride(0, null, null, null, null, false, 40),
+                new MethodOverride(1, null, null, null, null, true, 3))))));
+        transport.reply(204, new byte[0]);
+        client.runOnce();
+
+        assertEquals(40, create.policy().rateLimitPerSecond());
+        assertEquals(3, find.policy().rateLimitPerSecond());
+        Beat full = AslAdminCodec.decodeBeat(transport.bodies.get(1));
+        assertEquals(40, full.samples().get(0).value(MethodSample.RATE_LIMIT));
+
+        // 0 lifts the limit, even one from the yml.
+        transport.reply(200, AslAdminCodec.encode(new BeatReply(false, 15_000, new ConfigBlock(3, List.of(
+                new MethodOverride(0, null, null, null, null, false, 0))), List.of())));
+        client.runOnce();
+        assertEquals(0, create.policy().rateLimitPerSecond());
+        assertEquals(0, find.policy().rateLimitPerSecond(), "find's override was removed");
+
+        transport.reply(200, AslAdminCodec.encode(new BeatReply(false, 15_000, new ConfigBlock(4, List.of()), List.of())));
+        client.runOnce();
+        assertEquals(7, create.policy().rateLimitPerSecond(), "removing the override restores the yml value");
     }
 
     @Test

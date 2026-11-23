@@ -249,7 +249,7 @@ public final class AslAdminClient implements AutoCloseable {
         for (int i = 0; i < catalog.size(); i++) {
             long[] values = read(i);
             current.add(values);
-            int mask = full ? (1 << MethodSample.FIELD_COUNT) - 1 : changedMask(lastSent.get(i), values);
+            int mask = full ? fullMask(values) : changedMask(lastSent.get(i), values);
             if (mask != 0) {
                 samples.add(new MethodSample(i, mask, values));
             }
@@ -386,6 +386,7 @@ public final class AslAdminClient implements AutoCloseable {
         values[MethodSample.SUCCESS] = runtime.totalSuccessCount();
         values[MethodSample.ERROR] = runtime.totalErrorCount();
         values[MethodSample.REJECTED] = runtime.totalRejectedCount();
+        values[MethodSample.RATE_LIMIT] = runtime.policy().rateLimitPerSecond();
         BufferAdminProvider provider = catalogProviders.get(index);
         if (provider != null) {
             long[] previous = lastSent.get(index);
@@ -405,9 +406,18 @@ public final class AslAdminClient implements AutoCloseable {
         return values;
     }
 
+    /**
+     * Every field for a full sample, except a rate limit of 0: the server already assumes 0, and leaving the bit out
+     * keeps pods without a rate limit readable by admin servers that predate the field.
+     */
+    private static int fullMask(long[] current) {
+        int mask = (1 << MethodSample.FIELD_COUNT) - 1;
+        return current[MethodSample.RATE_LIMIT] == 0L ? mask & ~(1 << MethodSample.RATE_LIMIT) : mask;
+    }
+
     private static int changedMask(long[] previous, long[] current) {
         if (previous == null) {
-            return (1 << MethodSample.FIELD_COUNT) - 1;
+            return fullMask(current);
         }
         int mask = 0;
         for (int field = 0; field < MethodSample.FIELD_COUNT; field++) {
@@ -445,7 +455,8 @@ public final class AslAdminClient implements AutoCloseable {
                         override.enabled() != null ? override.enabled() : base.enabled(),
                         override.async() != null ? override.async() : base.async(),
                         override.maxConcurrency() != null ? override.maxConcurrency() : base.maxConcurrency(),
-                        override.consumerThreads() != null ? override.consumerThreads() : base.consumerThreads());
+                        override.consumerThreads() != null ? override.consumerThreads() : base.consumerThreads(),
+                        override.rateLimit() != null ? override.rateLimit() : base.rateLimit());
             } catch (RuntimeException exception) {
                 errors.add(label(index) + ": " + exception.getMessage());
             }
@@ -456,7 +467,7 @@ public final class AslAdminClient implements AutoCloseable {
             }
             Baseline base = baselines.get(index);
             try {
-                applyTarget(index, base.enabled(), base.async(), base.maxConcurrency(), base.consumerThreads());
+                applyTarget(index, base.enabled(), base.async(), base.maxConcurrency(), base.consumerThreads(), base.rateLimit());
             } catch (RuntimeException exception) {
                 errors.add(label(index) + ": " + exception.getMessage());
             }
@@ -476,11 +487,12 @@ public final class AslAdminClient implements AutoCloseable {
                 narrower.async() != null ? narrower.async() : wider.async(),
                 narrower.maxConcurrency() != null ? narrower.maxConcurrency() : wider.maxConcurrency(),
                 narrower.consumerThreads() != null ? narrower.consumerThreads() : wider.consumerThreads(),
-                narrower.instanceScoped()
+                narrower.instanceScoped(),
+                narrower.rateLimit() != null ? narrower.rateLimit() : wider.rateLimit()
         );
     }
 
-    private void applyTarget(int index, boolean enabled, boolean async, int maxConcurrency, int consumerThreads) {
+    private void applyTarget(int index, boolean enabled, boolean async, int maxConcurrency, int consumerThreads, int rateLimit) {
         MethodRuntime runtime = catalog.get(index);
         if (async && !runtime.asyncCapable()) {
             throw new IllegalStateException("method is not async-capable");
@@ -488,12 +500,16 @@ public final class AslAdminClient implements AutoCloseable {
         if (async && !registry.hasAsyncExecutionEngine()) {
             throw new IllegalStateException("no async execution engine attached");
         }
-        if (maxConcurrency <= 0 || consumerThreads < 0) {
+        if (maxConcurrency <= 0 || consumerThreads < 0 || rateLimit < 0) {
             throw new IllegalArgumentException("invalid limits");
         }
         boolean runtimeChanged = false;
         if (runtime.policy().maxConcurrency() != maxConcurrency) {
             runtime.setMaxConcurrency(maxConcurrency);
+        }
+        if (runtime.policy().rateLimitPerSecond() != rateLimit) {
+            runtime.setRateLimitPerSecond(rateLimit);
+            runtimeChanged = true;
         }
         if (runtime.consumerThreads() != consumerThreads) {
             runtime.setConsumerThreads(consumerThreads);
@@ -670,13 +686,14 @@ public final class AslAdminClient implements AutoCloseable {
         return spread == 0 ? delayMillis : delayMillis - spread + ThreadLocalRandom.current().nextLong(2 * spread + 1);
     }
 
-    private record Baseline(boolean enabled, boolean async, int maxConcurrency, int consumerThreads) {
+    private record Baseline(boolean enabled, boolean async, int maxConcurrency, int consumerThreads, int rateLimit) {
         static Baseline of(MethodRuntime runtime) {
             return new Baseline(
                     runtime.policy().enabled(),
                     runtime.executionMode() == ExecutionMode.ASYNC,
                     runtime.policy().maxConcurrency(),
-                    runtime.consumerThreads()
+                    runtime.consumerThreads(),
+                    runtime.policy().rateLimitPerSecond()
             );
         }
     }

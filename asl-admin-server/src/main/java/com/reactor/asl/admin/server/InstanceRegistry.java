@@ -141,6 +141,10 @@ public final class InstanceRegistry {
                     continue;
                 }
                 long[] values = instance.values[index];
+                if (beat.full()) {
+                    // A full sample leaves out a rate limit of 0 (see the client), so absence means "no limit".
+                    values[MethodSample.RATE_LIMIT] = 0L;
+                }
                 for (int field = 0; field < MethodSample.FIELD_COUNT; field++) {
                     if (sample.has(field)) {
                         values[field] = sample.value(field);
@@ -378,7 +382,8 @@ public final class InstanceRegistry {
                         json.value((String) null);
                     } else {
                         json.beginObject().field("enabled", setting.enabled()).field("async", setting.async())
-                                .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads()).endObject();
+                                .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads())
+                                .field("rateLimit", setting.rateLimit()).endObject();
                     }
                 }
                 json.endArray().endObject();
@@ -468,11 +473,11 @@ public final class InstanceRegistry {
             MethodKey key = instance.keys[i];
             MethodSetting wide = app.overrides.get(key);
             if (wide != null) {
-                overrides.add(new MethodOverride(i, wide.enabled(), wide.async(), wide.maxConcurrency(), wide.consumerThreads(), false));
+                overrides.add(new MethodOverride(i, wide.enabled(), wide.async(), wide.maxConcurrency(), wide.consumerThreads(), false, wide.rateLimit()));
             }
             MethodSetting narrow = own.get(key);
             if (narrow != null) {
-                overrides.add(new MethodOverride(i, narrow.enabled(), narrow.async(), narrow.maxConcurrency(), narrow.consumerThreads(), true));
+                overrides.add(new MethodOverride(i, narrow.enabled(), narrow.async(), narrow.maxConcurrency(), narrow.consumerThreads(), true, narrow.rateLimit()));
             }
         }
         return new ConfigBlock(app.version, overrides);

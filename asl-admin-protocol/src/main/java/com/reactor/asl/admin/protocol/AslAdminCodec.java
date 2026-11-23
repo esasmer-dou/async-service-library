@@ -41,6 +41,8 @@ public final class AslAdminCodec {
     private static final int OVERRIDE_ENABLED_VALUE = 16;
     private static final int OVERRIDE_ASYNC_VALUE = 32;
     private static final int OVERRIDE_INSTANCE_SCOPED = 64;
+    /** Calls-per-second limit follows (0 removes a limit set in the application's own configuration). */
+    private static final int OVERRIDE_RATE_LIMIT = 128;
 
     private AslAdminCodec() {
     }
@@ -259,12 +261,18 @@ public final class AslAdminCodec {
             if (override.instanceScoped()) {
                 mask |= OVERRIDE_INSTANCE_SCOPED;
             }
+            if (override.rateLimit() != null) {
+                mask |= OVERRIDE_RATE_LIMIT;
+            }
             out.uvar(override.methodIndex()).u8(mask);
             if (override.maxConcurrency() != null) {
                 out.uvar(override.maxConcurrency());
             }
             if (override.consumerThreads() != null) {
                 out.uvar(override.consumerThreads());
+            }
+            if (override.rateLimit() != null) {
+                out.uvar(override.rateLimit());
             }
         }
     }
@@ -280,7 +288,8 @@ public final class AslAdminCodec {
             Boolean async = (mask & OVERRIDE_ASYNC) != 0 ? (mask & OVERRIDE_ASYNC_VALUE) != 0 : null;
             Integer max = (mask & OVERRIDE_MAX_CONCURRENCY) != 0 ? in.uint() : null;
             Integer consumers = (mask & OVERRIDE_CONSUMER_THREADS) != 0 ? in.uint() : null;
-            overrides.add(new MethodOverride(index, enabled, async, max, consumers, (mask & OVERRIDE_INSTANCE_SCOPED) != 0));
+            Integer rate = (mask & OVERRIDE_RATE_LIMIT) != 0 ? in.uint() : null;
+            overrides.add(new MethodOverride(index, enabled, async, max, consumers, (mask & OVERRIDE_INSTANCE_SCOPED) != 0, rate));
         }
         return new ConfigBlock(version, overrides);
     }

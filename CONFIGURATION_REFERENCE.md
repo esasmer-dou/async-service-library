@@ -53,6 +53,7 @@ asl:
 | `.unavailable-message` | annotation/runtime default | Overrides the caller-facing disabled message. |
 | `.execution-mode` | `SYNC` | Selects `SYNC` or `ASYNC`; async requires an async-capable `void` method and an engine. |
 | `.consumer-threads` | annotation value | Sets desired lane consumers; zero accepts backlog without consuming it. |
+| `.rate-limit` | `0` (no limit) | Calls per second, per replica. In SYNC mode calls above the limit are rejected with reason `RATE_LIMIT`. In ASYNC mode calls are still queued and consumers start at most this many executions per second. Up to one second of calls may run in a burst. Negative values fail startup. |
 
 ## Central Admin Client
 

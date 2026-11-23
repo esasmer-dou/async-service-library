@@ -319,7 +319,8 @@ public final class AslAdminServer implements AutoCloseable {
             if (action.equals("/overrides") && (method.equals("POST") || method.equals("DELETE"))) {
                 Map<String, String> form = method.equals("POST") ? form(readForm(exchange)) : query;
                 MethodSetting setting = method.equals("DELETE") ? MethodSetting.NONE : new MethodSetting(
-                        bool(form.get("enabled")), bool(form.get("async")), integer(form.get("maxConcurrency")), integer(form.get("consumerThreads")));
+                        bool(form.get("enabled")), bool(form.get("async")), integer(form.get("maxConcurrency")), integer(form.get("consumerThreads")),
+                        integer(form.get("rateLimit")));
                 registry.setOverride(application, key(form), form.get("instance"), setting, actor, now);
                 sendEmpty(exchange, 204);
                 return;
