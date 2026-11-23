@@ -105,6 +105,34 @@ public final class GovernanceRegistry {
         }
     }
 
+    /** ASYNC call of a method that returns {@code CompletableFuture<T>}; see {@link AsyncExecutionEngine#enqueueForResult}. */
+    public <T> java.util.concurrent.CompletableFuture<T> enqueueAsyncForResult(MethodRuntime runtime, Object[] arguments) {
+        return enqueueAsyncForResult(runtime, arguments, AsyncInvocationContext.none());
+    }
+
+    public <T> java.util.concurrent.CompletableFuture<T> enqueueAsyncForResult(
+            MethodRuntime runtime,
+            Object[] arguments,
+            AsyncInvocationContext context
+    ) {
+        Objects.requireNonNull(runtime, "runtime");
+        Objects.requireNonNull(context, "context");
+        if (!runtime.tryAcceptAsyncInvocation()) {
+            throw runtime.unavailableException();
+        }
+        AsyncExecutionEngine current = asyncExecutionEngine;
+        if (current == null) {
+            runtime.onRejected();
+            throw new AsyncExecutionUnavailableException("No async execution engine attached");
+        }
+        try {
+            return current.enqueueForResult(runtime, arguments, context);
+        } catch (RuntimeException exception) {
+            runtime.onRejected();
+            throw exception;
+        }
+    }
+
     public AsyncExecutionEngine asyncExecutionEngine() {
         AsyncExecutionEngine current = asyncExecutionEngine;
         if (current == null) {

@@ -219,17 +219,43 @@ class AslConsumerSampleIntegrationTest {
         waitFor(() -> !inventoryDelegate.snapshotEvents().isEmpty(), 5);
 
         List<String> serviceIds = registry.services().stream().map(ServiceRuntime::serviceId).toList();
-        assertEquals(14, serviceIds.size());
+        assertEquals(15, serviceIds.size());
         assertTrue(serviceIds.containsAll(List.of(
                 MAIL_SERVICE_ID, CUSTOMER_SERVICE_ID, INVENTORY_SERVICE_ID, CHAOS_SERVICE_ID,
                 BILLING_SERVICE_ID, PAYMENT_SERVICE_ID, NOTIFICATION_SERVICE_ID, REPORTING_SERVICE_ID,
                 PRICING_SERVICE_ID, FRAUD_SERVICE_ID, SHIPMENT_SERVICE_ID, LEDGER_SERVICE_ID,
-                CATALOG_SERVICE_ID, SEARCH_SERVICE_ID
+                CATALOG_SERVICE_ID, SEARCH_SERVICE_ID, "quote.service"
         )));
         assertTrue(registry.services().stream().mapToInt(service -> service.methods().size()).sum() >= 14);
 
         ResponseEntity<String> removedPortal = restTemplate.getForEntity("/asl/api/summary", String.class);
         assertEquals(HttpStatus.NOT_FOUND, removedPortal.getStatusCode());
+    }
+
+    @Test
+    void completableFutureMethodAnswersTheSameInSyncAndAsyncMode() throws Exception {
+        MethodRuntime quote = registry.service("quote.service").methodById("quote(java.lang.String)");
+        quote.switchMode(ExecutionMode.SYNC);
+        ResponseEntity<Map> sync = restTemplate.getForEntity("/api/quotes/ACME", Map.class);
+        assertEquals(HttpStatus.OK, sync.getStatusCode());
+        String expected = (String) sync.getBody().get("quote");
+        assertTrue(expected.startsWith("ACME="), expected);
+
+        long queuedBefore = asyncExecutionEngine.snapshot("quote.service", "quote(java.lang.String)", 0).pendingCount();
+        quote.switchMode(ExecutionMode.ASYNC);
+        asyncExecutionEngine.applyRuntime(quote);
+        try {
+            ResponseEntity<Map> async = restTemplate.getForEntity("/api/quotes/ACME", Map.class);
+            assertEquals(HttpStatus.OK, async.getStatusCode());
+            assertEquals(expected, async.getBody().get("quote"), "the queued run hands its value to the waiting caller");
+            ResponseEntity<Map> failed = restTemplate.getForEntity("/api/quotes/FAIL-1", Map.class);
+            assertEquals(HttpStatus.BAD_GATEWAY, failed.getStatusCode());
+            assertEquals("IllegalStateException", failed.getBody().get("error"));
+            assertEquals(queuedBefore, asyncExecutionEngine.snapshot("quote.service", "quote(java.lang.String)", 0).pendingCount());
+            assertEquals(0, asyncExecutionEngine.pendingResults());
+        } finally {
+            quote.switchMode(ExecutionMode.SYNC);
+        }
     }
 
     @Test

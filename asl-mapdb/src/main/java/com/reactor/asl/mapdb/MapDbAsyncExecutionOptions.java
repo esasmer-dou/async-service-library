@@ -45,8 +45,14 @@ public final class MapDbAsyncExecutionOptions {
     private final PayloadSummaryPolicy payloadSummaryPolicy;
     private final ErrorDetailPolicy errorDetailPolicy;
     private final boolean legacyJavaMigrationEnabled;
+    private final long completionTimeoutMillis;
+    private final long resultWaitTimeoutMillis;
+    private final int maxPendingResults;
 
     private MapDbAsyncExecutionOptions(Builder builder) {
+        this.completionTimeoutMillis = positive(builder.completionTimeoutMillis, "completionTimeoutMillis");
+        this.resultWaitTimeoutMillis = positive(builder.resultWaitTimeoutMillis, "resultWaitTimeoutMillis");
+        this.maxPendingResults = positive(builder.maxPendingResults, "maxPendingResults");
         this.workerShutdownAwaitMillis = positive(builder.workerShutdownAwaitMillis, "workerShutdownAwaitMillis");
         this.registrationIdleSleepMillis = positive(builder.registrationIdleSleepMillis, "registrationIdleSleepMillis");
         this.emptyQueueSleepMillis = positive(builder.emptyQueueSleepMillis, "emptyQueueSleepMillis");
@@ -273,6 +279,28 @@ public final class MapDbAsyncExecutionOptions {
         return legacyJavaMigrationEnabled;
     }
 
+    /**
+     * How long a worker waits for the {@code CompletableFuture} an ASYNC future method returned. Past it the
+     * invocation fails with error category {@code TIMEOUT} (and is retried if attempts are left).
+     */
+    public long completionTimeoutMillis() {
+        return completionTimeoutMillis;
+    }
+
+    /**
+     * How long a caller's future of an ASYNC future method may stay open. Past it the future fails with
+     * {@code AsyncResultUnavailableException(WAIT_TIMEOUT)}; the invocation still runs and its outcome goes to the
+     * result handler. Keeps memory bounded when outcomes never arrive (for example a lane left at 0 consumers).
+     */
+    public long resultWaitTimeoutMillis() {
+        return resultWaitTimeoutMillis;
+    }
+
+    /** Callers that may wait for results at the same time; further ASYNC future calls are rejected (RESULT_CAPACITY). */
+    public int maxPendingResults() {
+        return maxPendingResults;
+    }
+
     public static String laneKey(String serviceId, String methodId) {
         String service = Objects.requireNonNull(serviceId, "serviceId");
         String method = Objects.requireNonNull(methodId, "methodId");
@@ -349,9 +377,16 @@ public final class MapDbAsyncExecutionOptions {
         private PayloadSummaryPolicy payloadSummaryPolicy = PayloadSummaryPolicy.TYPE_ONLY;
         private ErrorDetailPolicy errorDetailPolicy = ErrorDetailPolicy.TYPE_ONLY;
         private boolean legacyJavaMigrationEnabled;
+        private long completionTimeoutMillis = 5L * 60L * 1_000L;
+        private long resultWaitTimeoutMillis = 10L * 60L * 1_000L;
+        private int maxPendingResults = 10_000;
 
         private Builder() {
         }
+
+        public Builder completionTimeoutMillis(long value) { this.completionTimeoutMillis = value; return this; }
+        public Builder resultWaitTimeoutMillis(long value) { this.resultWaitTimeoutMillis = value; return this; }
+        public Builder maxPendingResults(int value) { this.maxPendingResults = value; return this; }
 
         public Builder workerShutdownAwaitMillis(long value) { this.workerShutdownAwaitMillis = value; return this; }
         public Builder registrationIdleSleepMillis(long value) { this.registrationIdleSleepMillis = value; return this; }

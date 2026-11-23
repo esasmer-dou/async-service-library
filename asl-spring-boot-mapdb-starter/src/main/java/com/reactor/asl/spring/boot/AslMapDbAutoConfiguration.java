@@ -108,7 +108,8 @@ public class AslMapDbAutoConfiguration {
             AslAsyncMapDbProperties properties,
             AsyncPayloadCodec asyncPayloadCodec,
             AslStartupRecoveryState startupRecoveryState,
-            Environment environment
+            Environment environment,
+            ObjectProvider<com.reactor.asl.core.AsyncResultHandler> resultHandler
     ) {
         if (!properties.isTransactionsEnabled()) {
             log.warn(
@@ -122,6 +123,9 @@ public class AslMapDbAutoConfiguration {
                 executionOptions(properties, environment)
         );
         engine.startupRecovery().ifPresent(recovery -> recordStartupRecovery(startupRecoveryState, recovery));
+        // Before the engine is attached (and starts consuming): outcomes of invocations left from the last run
+        // must find the handler.
+        resultHandler.ifAvailable(engine::resultHandler);
         governanceRegistry.attachAsyncExecutionEngine(engine);
         return engine;
     }
@@ -164,6 +168,9 @@ public class AslMapDbAutoConfiguration {
                 .leaseRenewalIntervalMillis(workers.getLeaseRenewalIntervalMillis())
                 .executionTimeoutMillis(workers.getExecutionTimeoutMillis())
                 .drainBacklogInSyncMode(workers.isDrainBacklogInSyncMode())
+                .completionTimeoutMillis(workers.getCompletionTimeoutMillis())
+                .resultWaitTimeoutMillis(workers.getResultWaitTimeoutMillis())
+                .maxPendingResults(workers.getMaxPendingResults())
                 .maxInterruptions(retry.getMaxInterruptions())
                 .maxAttempts(retry.getMaxAttempts())
                 .retryInitialBackoffMillis(retry.getInitialBackoffMillis())

@@ -244,6 +244,19 @@ public class AslAsyncMapDbProperties {
         private long leaseRenewalIntervalMillis = 20_000L;
         private long executionTimeoutMillis;
         private boolean drainBacklogInSyncMode = true;
+        private long completionTimeoutMillis = 5L * 60L * 1_000L;
+        private long resultWaitTimeoutMillis = 10L * 60L * 1_000L;
+        private int maxPendingResults = 10_000;
+
+        /** ASYNC CompletableFuture methods: how long a worker waits for the method's future (then TIMEOUT). */
+        public long getCompletionTimeoutMillis() { return completionTimeoutMillis; }
+        public void setCompletionTimeoutMillis(long value) { this.completionTimeoutMillis = value; }
+        /** ASYNC CompletableFuture methods: how long a caller's future may wait for the outcome. */
+        public long getResultWaitTimeoutMillis() { return resultWaitTimeoutMillis; }
+        public void setResultWaitTimeoutMillis(long value) { this.resultWaitTimeoutMillis = value; }
+        /** ASYNC CompletableFuture methods: callers that may wait at the same time; more are rejected. */
+        public int getMaxPendingResults() { return maxPendingResults; }
+        public void setMaxPendingResults(int value) { this.maxPendingResults = value; }
 
         public int getMaxThreads() { return maxThreads; }
         public void setMaxThreads(int value) { this.maxThreads = value; }

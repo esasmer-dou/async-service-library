@@ -200,6 +200,76 @@ class GovernedServiceProcessorCompileTest {
     }
 
     @Test
+    void completableFutureMethodsCanBeAsyncAndCountTheirOutcomeWhenTheFutureCompletes() throws Exception {
+        Compilation result = compile("QuoteService.java", """
+                package contract;
+
+                import com.reactor.asl.annotations.AsyncIdempotencyKey;
+                import com.reactor.asl.annotations.GovernedMethod;
+                import com.reactor.asl.annotations.GovernedService;
+                import java.util.concurrent.CompletableFuture;
+
+                @GovernedService(id = "quote.service")
+                public interface QuoteService {
+                    @GovernedMethod(asyncCapable = true)
+                    CompletableFuture<String> quote(String symbol);
+
+                    @GovernedMethod(asyncCapable = true)
+                    <T> CompletableFuture<T> keyed(@AsyncIdempotencyKey String key, T value);
+                }
+                """);
+        assertTrue(result.success(), () -> result.diagnosticsText());
+        String wrapper = Files.readString(result.generatedSources().resolve("contract/QuoteServiceAslGoverned.java"));
+        assertTrue(wrapper.contains("AsyncMethodBinding.typedFuture(contract.QuoteService.class, \"quote\""), wrapper);
+        assertTrue(wrapper.contains("this.registry.enqueueAsyncForResult(this.method0, new Object[] { symbol })"), wrapper);
+        assertTrue(wrapper.contains("AsyncInvocationContext.ofNullable(key)"), wrapper);
+
+        try (java.net.URLClassLoader loader = new java.net.URLClassLoader(
+                new java.net.URL[]{result.classes().toUri().toURL()}, getClass().getClassLoader())) {
+            Class<?> serviceType = loader.loadClass("contract.QuoteService");
+            java.util.concurrent.CompletableFuture<String> pending = new java.util.concurrent.CompletableFuture<>();
+            Object delegate = java.lang.reflect.Proxy.newProxyInstance(loader, new Class<?>[]{serviceType},
+                    (proxy, method, args) -> "quote".equals(method.getName()) ? pending : null);
+            com.reactor.asl.core.GovernanceRegistry registry = new com.reactor.asl.core.GovernanceRegistry();
+            Object governed = loader.loadClass("contract.QuoteServiceAsl")
+                    .getMethod("wrap", serviceType, com.reactor.asl.core.GovernanceRegistry.class)
+                    .invoke(null, delegate, registry);
+            com.reactor.asl.core.MethodRuntime quote = registry.service("quote.service").methodById("quote(java.lang.String)");
+            assertTrue(quote.asyncCapable());
+
+            Object returned = serviceType.getMethod("quote", String.class).invoke(governed, "ACME");
+            assertTrue(returned == pending, "SYNC hands back the method's own future");
+            assertTrue(quote.successCount() == 0L, "nothing is counted before the future completes");
+            assertTrue(quote.stats().inFlight() == 0, "the SYNC slot is released when the future is returned");
+            pending.completeExceptionally(new IllegalStateException("no price"));
+            assertTrue(quote.errorCount() == 1L, "a future that fails later counts as an error");
+
+            // ASYNC without an engine is rejected up front rather than handing out a future nobody completes.
+            quote.switchMode(com.reactor.asl.core.ExecutionMode.ASYNC);
+            java.lang.reflect.InvocationTargetException rejected = org.junit.jupiter.api.Assertions.assertThrows(
+                    java.lang.reflect.InvocationTargetException.class,
+                    () -> serviceType.getMethod("quote", String.class).invoke(governed, "ACME"));
+            assertTrue(rejected.getCause() instanceof com.reactor.asl.core.AsyncExecutionUnavailableException, rejected.getCause().toString());
+        }
+
+        Compilation stage = compile("StageService.java", """
+                package contract;
+
+                import com.reactor.asl.annotations.GovernedMethod;
+                import com.reactor.asl.annotations.GovernedService;
+                import java.util.concurrent.CompletionStage;
+
+                @GovernedService(id = "stage.service")
+                public interface StageService {
+                    @GovernedMethod(asyncCapable = true)
+                    CompletionStage<String> quote(String symbol);
+                }
+                """);
+        assertFalse(stage.success());
+        assertTrue(stage.diagnosticsText().contains("CompletableFuture<T>"), stage.diagnosticsText());
+    }
+
+    @Test
     void rejectsInvalidIdempotencyKeyParameterType() throws Exception {
         Compilation result = compile("InvalidKeyService.java", """
                 package contract;

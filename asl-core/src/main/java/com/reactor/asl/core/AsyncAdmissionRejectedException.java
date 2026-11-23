@@ -25,6 +25,8 @@ public final class AsyncAdmissionRejectedException extends RuntimeException {
         WRITER_SATURATED,
         IDEMPOTENCY_CAPACITY,
         ENGINE_CLOSED,
-        STORAGE_FAILURE
+        STORAGE_FAILURE,
+        /** Too many callers are waiting for results of ASYNC {@code CompletableFuture} methods. */
+        RESULT_CAPACITY
     }
 }

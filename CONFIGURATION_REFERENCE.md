@@ -51,7 +51,7 @@ asl:
 | `.enabled` | annotation value | Enables or disables the method at startup. |
 | `.max-concurrency` | annotation value | Overrides active SYNC/ASYNC execution concurrency. |
 | `.unavailable-message` | annotation/runtime default | Overrides the caller-facing disabled message. |
-| `.execution-mode` | `SYNC` | Selects `SYNC` or `ASYNC`; async requires an async-capable `void` method and an engine. |
+| `.execution-mode` | `SYNC` | Selects `SYNC` or `ASYNC`; async requires an async-capable method (`void` or `CompletableFuture<T>`) and an engine. |
 | `.consumer-threads` | annotation value | Sets desired lane consumers; zero accepts backlog without consuming it. |
 | `.rate-limit` | `0` (no limit) | Calls per second, per replica. In SYNC mode calls above the limit are rejected with reason `RATE_LIMIT`. In ASYNC mode calls are still queued and consumers start at most this many executions per second. Up to one second of calls may run in a burst. Negative values fail startup. |
 
@@ -180,6 +180,9 @@ asl:
 | `asl.async.mapdb.workers.drain-backlog-in-sync-mode` | `true` | After a lane is switched back to SYNC, keep consuming the already accepted backlog (needs consumer threads > 0). `false` leaves it queued until the lane is ASYNC again. |
 | `management.health.aslmapdb.enabled` | `true` | Registers the `aslMapDb` Actuator health contributor when Actuator is present. |
 | `asl.async.mapdb.workers.execution-timeout-millis` | `0` | Interrupts a business execution that runs longer than this and records a `TIMEOUT` failure (counts as an attempt). `0` disables it. Interruption is cooperative: code that ignores interrupts keeps its worker thread. |
+| `asl.async.mapdb.workers.completion-timeout-millis` | `300000` | ASYNC `CompletableFuture` methods: how long a worker waits for the future the method returned. Past it the run fails with `AsyncCompletionTimeoutException`, category `TIMEOUT` (retried if attempts are left), and the method's future is cancelled. Must be positive. |
+| `asl.async.mapdb.workers.result-wait-timeout-millis` | `600000` | ASYNC `CompletableFuture` methods: how long a caller's future may wait for the outcome. Past it the future fails with `AsyncResultUnavailableException(WAIT_TIMEOUT)`; the invocation still runs and its outcome goes to the `AsyncResultHandler`. Must be positive. |
+| `asl.async.mapdb.workers.max-pending-results` | `10000` | ASYNC `CompletableFuture` methods: callers that may wait at the same time. Further calls are rejected with `AsyncAdmissionRejectedException(RESULT_CAPACITY)` before anything is queued. Must be positive. |
 
 ### Retry and Idempotency
 

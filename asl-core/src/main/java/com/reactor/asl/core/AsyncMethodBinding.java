@@ -17,6 +17,61 @@ public interface AsyncMethodBinding {
         return null;
     }
 
+    /**
+     * {@code true} for a method that returns {@code CompletableFuture<T>}: the engine calls
+     * {@link #invokeForResult(Object[])} and waits for the returned future before the invocation counts as done.
+     */
+    default boolean returnsFuture() {
+        return false;
+    }
+
+    /**
+     * Runs the method and returns what it returned: the method's {@code CompletableFuture} for future bindings,
+     * {@code null} for {@code void} methods.
+     */
+    default Object invokeForResult(Object[] arguments) throws Throwable {
+        invoke(arguments);
+        return null;
+    }
+
+    /** Call of a governed method that returns {@code CompletableFuture<T>}. */
+    @FunctionalInterface
+    interface FutureInvoker {
+        java.util.concurrent.CompletableFuture<?> invoke(Object[] arguments) throws Throwable;
+    }
+
+    /** Binding for generated wrappers of methods that return {@code CompletableFuture<T>}. */
+    static AsyncMethodBinding typedFuture(
+            Class<?> owner,
+            String methodName,
+            Class<?>[] erasedParameterTypes,
+            FutureInvoker delegate
+    ) {
+        Objects.requireNonNull(delegate, "delegate");
+        AsyncMethodBinding typed = typed(owner, methodName, erasedParameterTypes, delegate::invoke);
+        return new AsyncMethodBinding() {
+            @Override
+            public void invoke(Object[] arguments) throws Throwable {
+                delegate.invoke(arguments);
+            }
+
+            @Override
+            public boolean returnsFuture() {
+                return true;
+            }
+
+            @Override
+            public Object invokeForResult(Object[] arguments) throws Throwable {
+                return delegate.invoke(arguments);
+            }
+
+            @Override
+            public Type[] parameterTypes() {
+                return typed.parameterTypes();
+            }
+        };
+    }
+
     /** Binding that carries the declared parameter types. */
     static AsyncMethodBinding typed(Type[] parameterTypes, AsyncMethodBinding delegate) {
         Objects.requireNonNull(delegate, "delegate");

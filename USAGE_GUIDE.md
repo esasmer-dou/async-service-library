@@ -10,7 +10,7 @@ This guide covers integration and runtime behavior. Every external property, def
 - Spring Boot 3.3.x for starter-based integration.
 - Maven 3.9.x for the documented build.
 - One concrete Spring stereotype implementation per governed interface.
-- Async runtime switching only for `void` methods marked `asyncCapable=true`.
+- Async runtime switching for methods marked `asyncCapable=true` that return `void` or `CompletableFuture<T>`.
 
 ASL is an in-process governance library, not a distributed workflow engine. The MapDB backend is single-process and must not be shared by multiple pods.
 
@@ -170,16 +170,16 @@ Inject `MailService`, not the implementation. The generated `@Primary` wrapper d
 - `initialConsumerThreads` must be zero or positive.
 - `@AsyncIdempotencyKey` is optional, allowed once, and must annotate a `String` parameter of an async-capable method. A `null` or blank key means "no deduplication" in both SYNC and ASYNC mode.
 - Inherited interface methods, generic methods, generic interfaces and interfaces nested in a class are supported. A nested `Outer.Inner` generates `Outer_InnerAsl` and `Outer_InnerAslGoverned`. Annotations on inherited methods are honoured only when the super-interface is compiled in the same module (they have source retention). Local interfaces (declared inside a method) are not visible to annotation processors and are not governed.
-- Rejections throw `MethodUnavailableException` with `reason()` `DISABLED` or `CONCURRENCY_LIMIT` and without a stack trace, so throttling stays cheap under load.
+- Rejections throw `MethodUnavailableException` with `reason()` `DISABLED`, `CONCURRENCY_LIMIT` or `RATE_LIMIT` and without a stack trace, so throttling stays cheap under load.
 - `@Excluded` bypasses governance and calls the delegate directly.
-- The processor fails compilation when `asyncCapable=true` is used on a result-returning method.
+- The processor fails compilation when `asyncCapable=true` is used on a method that returns anything other than `void` or `java.util.concurrent.CompletableFuture<T>` (a `CompletionStage` or a subclass is not enough).
 
 ## 6. Synchronous and Asynchronous Semantics
 
 | Behavior | `SYNC` | `ASYNC` |
 |---|---|---|
 | Caller thread | Executes business code | Serializes and durably admits work |
-| Return value | Returned normally | Only supported for `void` |
+| Return value | Returned normally | `void`, or a `CompletableFuture<T>` of the queued run (below) |
 | Exception | Returned to caller | Stored as retry/failed state |
 | Concurrency | `maxConcurrency` limits active calls | Limits active consumers for the lane |
 | Durability | None added by ASL | MapDB commit completes before admission returns |
@@ -187,6 +187,40 @@ Inject `MailService`, not the implementation. The generated `@Primary` wrapper d
 An async call returning from the wrapper means the invocation was durably accepted, not that the business action completed. Queue overflow, payload limits, writer saturation, timeout, or storage failure are reported immediately as an admission exception.
 
 Delivery is at-least-once. Graceful shutdown, a crash or an expired lease interrupts an execution; the invocation returns to the queue without consuming a retry attempt, up to `retry.max-interruptions` times. A crash between the external side effect and queue completion can therefore execute the same invocation again. Use a stable `@AsyncIdempotencyKey` and enforce idempotency in the target database or external API.
+
+### Methods that return `CompletableFuture<T>`
+
+```java
+@GovernedMethod(asyncCapable = true, initialConsumerThreads = 2)
+CompletableFuture<Quote> quote(String symbol);
+```
+
+In SYNC mode the wrapper returns the method's own future. The concurrency slot is released when the method returns it, as for any method. Success and errors are counted when the future completes, so a future that fails later counts as an error.
+
+In ASYNC mode the call is queued durably like a `void` call, and the caller gets a future of that queued run. A consumer runs the method, waits for the future the method returned, then completes the caller's future with its value or its failure (after retries, if `retry.max-attempts` allows them). The caller sees the same result in both modes, so a method can be switched from the portal without touching its callers. The run holds its worker and its concurrency slot until the method's future completes, so `max-concurrency` and the rate limit count running work.
+
+Safeguards:
+
+| Risk | What ASL does |
+|---|---|
+| The method's future never completes | The worker waits at most `workers.completion-timeout-millis` (5 min). The run then fails with `AsyncCompletionTimeoutException`, category `TIMEOUT`, and is retried if attempts are left. The method's future is cancelled so its own code can notice. |
+| Nobody completes the caller's future (lane left at 0 consumers, long backlog) | After `workers.result-wait-timeout-millis` (10 min) the caller's future fails with `AsyncResultUnavailableException(WAIT_TIMEOUT)`. The invocation stays queued and still runs. |
+| Shutdown or restart while callers wait | Callers still waiting when the workers have stopped get `AsyncResultUnavailableException(SHUTDOWN)`. The invocation stays queued and runs after the restart. |
+| Outcomes nobody waits for (after a restart or a wait timeout, duplicates) | They go to an `AsyncResultHandler` bean if the application defines one. Otherwise they are only counted (`resultsWithoutCaller` in health). The exception carries the `invocationId` so the outcome can be matched. |
+| Too many waiting callers | More than `workers.max-pending-results` (10,000) waiting callers: new ASYNC calls are rejected with `AsyncAdmissionRejectedException(RESULT_CAPACITY)` before anything is queued. |
+| Callers' callbacks blocking ASL | The caller's future is completed on the common pool, never on an ASL worker. The caller gets a copy, so completing or cancelling it changes nothing in the queue. |
+| Duplicate call (same `@AsyncIdempotencyKey`) | While the first call is still waiting, the duplicate gets the same outcome. Afterwards it fails with `AsyncResultUnavailableException(DUPLICATE)`. |
+
+The outcome is kept in memory only, never in the queue. A value that must survive a restart belongs in the method's own storage or in the result handler.
+
+```java
+@Bean
+AsyncResultHandler quoteResults(QuoteStore store) {
+    return result -> store.save(result.invocationId(), result.value(), result.failure()); // keep it short
+}
+```
+
+The handler runs on an ASL worker after the outcome is durable. Its exceptions are caught and counted (`resultHandlerFailures`).
 
 ## 7. Enable MapDB Safely
 
@@ -248,7 +282,11 @@ One central admin server manages every application and replica. It works like a 
 
 **Settings model.** The server keeps only overrides that differ from the application's own `application.yml`: application-wide (persisted) or per replica (memory only, removed with the replica). A new replica receives the current overrides when it registers. Removing an override returns the method to its yml value. Limits stay per replica: `max-concurrency: 20` on three replicas allows 60 concurrent calls in total.
 
-**Queue operations.** Each replica owns its MapDB queue, so replay and delete target the replica that holds the entry; browse and clear go to one replica or to all of them. In the portal, the **Queue** button of a method (or a "failed" label) opens a dialog that asks the replicas and lists their entries with Replay and Delete; the answer arrives with each replica's next heartbeat (about 2 s while the portal is open). Each entry shows its payload summary, payload type and version, codec, error category, error type and last error; the payload itself never leaves the replica. The summary is what `asl.async.mapdb.payload.summary-policy` stored: the payload type by default (`TYPE_ONLY`), a short text of the arguments with `CODEC` (may hold business data), nothing with `NONE`. Browsing sends these summaries and error texts to the server, so it is off unless the replica sets `asl.admin.client.queue-browse=true`; `asl.admin.client.max-summary-chars` (200) cuts the summaries. The server keeps them in memory only, about 500 entries per application.
+**Timed overrides.** An override can be kept for a limited time (portal: *Keep for* 15 min, 1 h, 4 h or 24 h; API: `durationSeconds`). When the time is up the method returns to the override that was there before, or to its yml value when there was none. The change is audited as `override.expired` by `system`. Changing a timed override again with a duration keeps the original "before" value. A permanent change or a removal cancels the timer. Application-wide timers survive a server restart; replica timers go with the replica.
+
+**Rate limit.** `rate-limit` (yml) or *Rate limit* in the portal sets calls per second per replica. SYNC calls above it are rejected with `RATE_LIMIT`. ASYNC calls are still queued, and consumers start at most that many runs per second. Up to one second of calls may run in a burst.
+
+**Queue operations.** Each replica owns its MapDB queue, so replay and delete target the replica that holds the entry; browse and clear go to one replica or to all of them. In the portal, the **Queue** button of a method (or a "failed" label) opens a dialog that asks the replicas and lists their entries with Replay and Delete; the answer arrives with each replica's next heartbeat (about 2 s while the portal is open). Each entry shows its payload summary, payload type and version, codec, error category, error type and last error; the payload itself never leaves the replica. The summary is what `asl.async.mapdb.payload.summary-policy` stored: the payload type by default (`TYPE_ONLY`), a short text of the arguments with `CODEC` (may hold business data), nothing with `NONE`. Browsing sends these summaries and error texts to the server, so it is off unless the replica sets `asl.admin.client.queue-browse=true`; `asl.admin.client.max-summary-chars` (200) cuts the summaries. The server keeps them in memory only, about 500 entries per application. **Bulk…** in the same dialog replays or deletes the entries that match a filter: failed and/or waiting entries, error category, a time window, and at most N entries per replica (10,000 at most). The replica selects the entries itself, so this also reaches entries the list does not show. Running entries are never touched, and replay takes failed entries only. A confirmation shows the exact scope first, and each replica answers with its count. One command looks at no more than 50,000 entries and commits once.
 
 **Finding things.** The sidebar filters applications by name and can show only those that need attention (setting errors, failed queue entries, replicas still applying settings). On an application page the method list filters by service or method name, by service, by replica and by state (stopped, async, queue not empty, failed entries, errors, overridden, replicas differ). With a replica selected, totals, widgets, the replica list and recent commands cover that replica only.
 
@@ -319,9 +357,9 @@ The portal page calls a small JSON API under `/asl-admin/api`. Scripts can use t
 | `GET /apps` | Connected applications |
 | `GET /apps/{app}` | Methods, replicas with their latest raw counters, overrides and command results; also marks the application as watched (faster heartbeats) |
 | `GET /apps/{app}/history?serviceId=&methodId=` | Stored telemetry points per replica |
-| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, optional `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads` |
+| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, optional `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads`, `rateLimit` (calls/s, `0` lifts a limit), `durationSeconds` (timed override, 10 s to 7 days) |
 | `DELETE /apps/{app}/overrides?serviceId=&methodId=[&instance=]` | Remove an override; the method returns to its yml value |
-| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`), `serviceId`, `methodId`, optional `instance`, `entryId`, `limit`; returns `commandIds` |
+| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`, `REPLAY_MATCHING`, `DELETE_MATCHING`), `serviceId`, `methodId`, optional `instance`, `entryId`, `limit`; for the two bulk types also `states` (`FAILED`, `PENDING`, `RETRY_WAIT`, comma separated; default `FAILED`), `category` (`-` for none), `from`, `to` (epoch ms) and `limit` 1–10,000 per replica; returns `commandIds` |
 | `GET /audit?limit=100` | Recent audit entries |
 
 A replica picks up overrides and commands with its next heartbeat. A replica has applied the current settings when its `appliedConfigVersion` equals the application's `configVersion` (`inSync` is true). Command results appear in the `commands` list of `GET /apps/{app}`.

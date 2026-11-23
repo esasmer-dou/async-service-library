@@ -19,4 +19,25 @@ public interface AsyncExecutionEngine extends AsyncAdminProvider {
         }
         enqueue(runtime, arguments);
     }
+
+    /**
+     * Enqueues an invocation of a method that returns {@code CompletableFuture<T>} and returns a future that
+     * completes with the outcome of the queued execution in this process. The future completes exceptionally with
+     * {@link AsyncResultUnavailableException} when the outcome cannot be handed over (shutdown, wait timeout,
+     * duplicate); the invocation itself is not lost and its outcome then goes to the {@link AsyncResultHandler}.
+     *
+     * @throws UnsupportedOperationException when the engine cannot return results
+     */
+    default <T> java.util.concurrent.CompletableFuture<T> enqueueForResult(
+            MethodRuntime runtime,
+            Object[] arguments,
+            AsyncInvocationContext context
+    ) {
+        throw new UnsupportedOperationException(getClass().getName()
+                + " cannot return results of ASYNC calls; CompletableFuture methods must stay SYNC with this engine");
+    }
+
+    /** Receives outcomes nobody waits for; see {@link AsyncResultHandler}. Engines without results ignore it. */
+    default void resultHandler(AsyncResultHandler handler) {
+    }
 }

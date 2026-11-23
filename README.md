@@ -62,7 +62,7 @@ public interface MailService {
 }
 ```
 
-Result-returning methods stay synchronous because queueing would break their return contract. Async switching is available only for `void` methods explicitly marked `asyncCapable=true`.
+Async switching is available for methods explicitly marked `asyncCapable=true` that return `void` or `CompletableFuture<T>`. In ASYNC mode a `CompletableFuture` method still hands its caller a future, which completes when the queued run is done (see USAGE_GUIDE section 6). Other result-returning methods stay synchronous because queueing would break their return contract.
 
 ## Production Defaults
 

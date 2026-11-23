@@ -62,7 +62,7 @@ public interface MailService {
 }
 ```
 
-Yanıt döndüren metotlar senkron kalır; bu metotları kuyruğa almak çağrının dönüş sözleşmesini bozar. Runtime sırasında async moda yalnızca `asyncCapable=true` olarak tanımlanmış `void` metotlar geçirilebilir.
+Runtime sırasında async moda `asyncCapable=true` olarak tanımlanmış ve `void` ya da `CompletableFuture<T>` döndüren metotlar geçirilebilir. ASYNC modda `CompletableFuture` metodu çağırana yine bir future verir; bu future kuyruktaki çalıştırma bitince tamamlanır (USAGE_GUIDE bölüm 6). Diğer yanıt döndüren metotlar senkron kalır; bunları kuyruğa almak çağrının dönüş sözleşmesini bozar.
 
 ## Production Varsayılanları
 

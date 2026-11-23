@@ -272,8 +272,10 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                     ? 0
                     : governedMethod.initialConsumerThreads();
 
-            if (asyncCapable && resolved.getReturnType().getKind() != TypeKind.VOID) {
-                error(method, "@GovernedMethod(asyncCapable=true) is currently supported only for void methods");
+            boolean returnsFuture = returnsCompletableFuture(resolved);
+            if (asyncCapable && resolved.getReturnType().getKind() != TypeKind.VOID && !returnsFuture) {
+                error(method, "@GovernedMethod(asyncCapable=true) is supported only for void methods and methods that return "
+                        + "java.util.concurrent.CompletableFuture<T>");
                 continue;
             }
 
@@ -316,10 +318,18 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                     asyncCapable,
                     initialConsumerThreads,
                     idempotencyParameterIndex,
-                    excluded ? -1 : managedIndex++
+                    excluded ? -1 : managedIndex++,
+                    asyncCapable && returnsFuture
             ));
         }
         return methods;
+    }
+
+    /** {@code CompletableFuture<…>} exactly; subtypes and other CompletionStage types are not async-capable. */
+    private boolean returnsCompletableFuture(ExecutableType resolved) {
+        TypeMirror returnType = resolved.getReturnType();
+        return returnType.getKind() == TypeKind.DECLARED
+                && "java.util.concurrent.CompletableFuture".equals(processingEnv.getTypeUtils().erasure(returnType).toString());
     }
 
     private boolean validateMethodIds(TypeElement typeElement, List<MethodModel> methods) {
@@ -446,7 +456,8 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             for (MethodModel method : methods) {
                 if (method.asyncCapable()) {
                     writer.write("        this.registry.registerAsyncMethod(this.method" + method.managedIndex()
-                            + ", com.reactor.asl.core.AsyncMethodBinding.typed(" + interfaceClassLiteral + ", "
+                            + ", com.reactor.asl.core.AsyncMethodBinding." + (method.returnsFuture() ? "typedFuture" : "typed")
+                            + "(" + interfaceClassLiteral + ", "
                             + stringLiteral(method.element().getSimpleName().toString()) + ", "
                             + erasedParameterClasses(method)
                             + ", arguments -> this.delegate."
@@ -547,9 +558,15 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
                     ? ""
                     : ", AsyncInvocationContext.ofNullable("
                             + parameters.get(method.idempotencyParameterIndex()).getSimpleName() + ")";
-            writer.write("            this.registry.enqueueAsync(this.method" + method.managedIndex() + ", "
-                    + asyncArgumentsArray(parameters) + contextArgument + ");\n");
-            writer.write("            return;\n");
+            if (method.returnsFuture()) {
+                // The caller gets a future of the queued invocation's outcome (see enqueueAsyncForResult).
+                writer.write("            return (" + type.getReturnType() + ") (java.lang.Object) this.registry.enqueueAsyncForResult(this.method"
+                        + method.managedIndex() + ", " + asyncArgumentsArray(parameters) + contextArgument + ");\n");
+            } else {
+                writer.write("            this.registry.enqueueAsync(this.method" + method.managedIndex() + ", "
+                        + asyncArgumentsArray(parameters) + contextArgument + ");\n");
+                writer.write("            return;\n");
+            }
             writer.write("        }\n");
         }
 
@@ -561,6 +578,24 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
         if (isVoid) {
             writer.write("            " + invocation + ";\n");
             writer.write("            this.method" + method.managedIndex() + ".onSuccess();\n");
+        } else if (method.returnsFuture()) {
+            // SYNC: the slot is released when the method returns its future (as for any method), but success and
+            // errors are counted when the future completes, so a future that fails later counts as an error.
+            writer.write("            " + type.getReturnType() + " result = " + invocation + ";\n");
+            writer.write("            if (result == null) {\n");
+            writer.write("                this.method" + method.managedIndex() + ".onSuccess();\n");
+            writer.write("            } else {\n");
+            writer.write("                final MethodRuntime aslMethod = this.method" + method.managedIndex() + ";\n");
+            writer.write("                result.whenComplete((aslValue, aslFailure) -> {\n");
+            writer.write("                    if (aslFailure == null) {\n");
+            writer.write("                        aslMethod.onSuccess();\n");
+            writer.write("                    } else {\n");
+            writer.write("                        aslMethod.onError(aslFailure instanceof java.util.concurrent.CompletionException"
+                    + " && aslFailure.getCause() != null ? aslFailure.getCause() : aslFailure);\n");
+            writer.write("                    }\n");
+            writer.write("                });\n");
+            writer.write("            }\n");
+            writer.write("            return result;\n");
         } else {
             writer.write("            " + type.getReturnType() + " result = " + invocation + ";\n");
             writer.write("            this.method" + method.managedIndex() + ".onSuccess();\n");
@@ -799,7 +834,9 @@ public final class GovernedServiceProcessor extends AbstractProcessor {
             boolean asyncCapable,
             int initialConsumerThreads,
             int idempotencyParameterIndex,
-            int managedIndex
+            int managedIndex,
+            /** Async-capable and returns CompletableFuture: ASYNC calls hand the caller a future of the queued run. */
+            boolean returnsFuture
     ) {
     }
 

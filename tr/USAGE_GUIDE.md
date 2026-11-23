@@ -10,7 +10,7 @@ Bu rehber kurulum adımlarını ve runtime davranışını anlatır. Dışarıda
 - Starter tabanlı kurulum için Spring Boot 3.3.x.
 - Bu rehberdeki komutlar için Maven 3.9.x.
 - Her governed interface için tek bir somut Spring stereotype implementation.
-- Runtime sırasında yalnızca `asyncCapable=true` olarak işaretlenen `void` metotlar async moda geçirilebilir.
+- Runtime sırasında `asyncCapable=true` olarak işaretlenen ve `void` ya da `CompletableFuture<T>` döndüren metotlar async moda geçirilebilir.
 
 ASL süreç içi bir yönetim kütüphanesidir; dağıtık iş akışı motoru değildir. MapDB backend’i tek JVM’e aittir ve aynı dosya birden fazla pod tarafından paylaşılmamalıdır.
 
@@ -170,16 +170,16 @@ Uygulamanın diğer sınıflarında implementation yerine `MailService` interfac
 - `initialConsumerThreads` sıfır veya daha büyük olmalıdır.
 - `@AsyncIdempotencyKey` isteğe bağlıdır; yalnızca bir kez kullanılabilir ve async-capable metottaki `String` parametreyi işaretlemelidir. `null` veya boş key, SYNC ve ASYNC modda aynı şekilde "tekilleştirme yok" anlamına gelir.
 - Kalıtılan arayüz metotları, generic metotlar, generic arayüzler ve bir sınıf içindeki nested arayüzler desteklenir. Nested `Outer.Inner` için `Outer_InnerAsl` ve `Outer_InnerAslGoverned` üretilir. Kalıtılan metotlardaki annotation'lar yalnız üst arayüz aynı modülde derlendiğinde dikkate alınır (source retention). Metot içinde tanımlanan local arayüzleri annotation processor göremez; bunlar governed olmaz.
-- Redler `reason()` değeri `DISABLED` veya `CONCURRENCY_LIMIT` olan, stack trace içermeyen `MethodUnavailableException` fırlatır; böylece yük altında throttle maliyeti düşük kalır.
+- Redler `reason()` değeri `DISABLED`, `CONCURRENCY_LIMIT` veya `RATE_LIMIT` olan, stack trace içermeyen `MethodUnavailableException` fırlatır; böylece yük altında throttle maliyeti düşük kalır.
 - `@Excluded` governance katmanını tamamen atlayarak doğrudan implementation’ı çağırır.
-- `asyncCapable=true` yanıt döndüren bir metotta kullanılırsa processor derlemeyi durdurur.
+- `asyncCapable=true`, `void` veya `java.util.concurrent.CompletableFuture<T>` dışında bir şey döndüren metotta kullanılırsa processor derlemeyi durdurur (`CompletionStage` veya bir alt sınıf yetmez).
 
 ## 6. Senkron ve Async Davranış
 
 | Davranış | `SYNC` | `ASYNC` |
 |---|---|---|
 | Caller thread | İş mantığını çalıştırır | Payload’u serialize eder ve kalıcı kuyruğa kabul ettirir |
-| Dönüş değeri | Normal biçimde döner | Yalnızca `void` desteklenir |
+| Dönüş değeri | Normal biçimde döner | `void` ya da kuyruktaki çalıştırmanın `CompletableFuture<T>`'si (aşağıda) |
 | Hata | Caller’a iletilir | Retry veya failed kaydı olarak saklanır |
 | Eşzamanlılık | Aktif çağrıları sınırlar | Lane’deki aktif consumer sayısını sınırlar |
 | Dayanıklılık | ASL ek dayanıklılık sağlamaz | Kabul çağrısı MapDB commit’inden sonra döner |
@@ -187,6 +187,40 @@ Uygulamanın diğer sınıflarında implementation yerine `MailService` interfac
 Async wrapper çağrısının dönmesi, işin tamamlandığını değil kuyruğa kalıcı olarak kabul edildiğini gösterir. Kuyruk sınırı, payload limiti, writer doygunluğu, timeout veya storage hatası varsa kabul çağrısı hemen hata verir.
 
 Teslimat at-least-once biçimindedir. Graceful shutdown, crash veya süresi dolan lease bir çalıştırmayı keser; çağrı retry denemesi tüketmeden, en fazla `retry.max-interruptions` kez kuyruğa geri döner. JVM dış sistemdeki yan etki tamamlandıktan sonra fakat queue completion yazılmadan önce kapanabilir. Kararlı bir `@AsyncIdempotencyKey` kullan ve asıl idempotency kontrolünü hedef veritabanında ya da dış API’de uygula.
+
+### `CompletableFuture<T>` döndüren metotlar
+
+```java
+@GovernedMethod(asyncCapable = true, initialConsumerThreads = 2)
+CompletableFuture<Quote> quote(String symbol);
+```
+
+SYNC modda wrapper metodun kendi future'ını döndürür. Eşzamanlılık hakkı, her metotta olduğu gibi metot future'ı döndürdüğünde bırakılır. Başarı ve hata ise future tamamlandığında sayılır; sonradan başarısız olan bir future hata olarak sayılır.
+
+ASYNC modda çağrı `void` çağrı gibi kalıcı olarak kuyruğa yazılır ve çağırana bu kuyruktaki çalıştırmanın future'ı verilir. Consumer metodu çalıştırır, metodun döndürdüğü future'ı bekler, sonra çağıranın future'ını onun değeri ya da hatasıyla tamamlar (`retry.max-attempts` izin veriyorsa denemelerden sonra). Çağıran her iki modda da aynı sonucu görür; bu yüzden metot, çağıranlara dokunmadan portalden mod değiştirebilir. Çalıştırma, metodun future'ı tamamlanana kadar worker'ını ve eşzamanlılık hakkını tutar; `max-concurrency` ve rate limit böylece gerçekten çalışan işi sayar.
+
+Önlemler:
+
+| Risk | ASL ne yapar |
+|---|---|
+| Metodun future'ı hiç tamamlanmaz | Worker en fazla `workers.completion-timeout-millis` (5 dk) bekler. Sonra çalıştırma `AsyncCompletionTimeoutException` ile, `TIMEOUT` kategorisinde başarısız olur; deneme hakkı varsa yeniden denenir. Metodun future'ı, kendi kodu fark edebilsin diye iptal edilir. |
+| Çağıranın future'ını kimse tamamlamaz (lane 0 consumer'da kalmış, uzun birikme) | `workers.result-wait-timeout-millis` (10 dk) sonra çağıranın future'ı `AsyncResultUnavailableException(WAIT_TIMEOUT)` ile biter. Çağrı kuyrukta kalır ve yine çalışır. |
+| Çağıranlar beklerken kapanma veya yeniden başlama | Worker'lar durduğunda hâlâ bekleyen çağıranlar `AsyncResultUnavailableException(SHUTDOWN)` alır. Çağrı kuyrukta kalır ve yeniden başladıktan sonra çalışır. |
+| Kimsenin beklemediği sonuçlar (yeniden başlama veya bekleme zaman aşımı sonrası, tekrar eden çağrılar) | Uygulama bir `AsyncResultHandler` bean'i tanımladıysa ona gider; tanımlamadıysa yalnızca sayılır (health'te `resultsWithoutCaller`). Exception, sonucun eşleştirilebilmesi için `invocationId` taşır. |
+| Çok fazla bekleyen çağıran | `workers.max-pending-results` (10.000) bekleyen çağırandan fazlası olursa yeni ASYNC çağrılar kuyruğa hiçbir şey yazılmadan `AsyncAdmissionRejectedException(RESULT_CAPACITY)` ile reddedilir. |
+| Çağıranın callback'lerinin ASL'yi tıkaması | Çağıranın future'ı ASL worker'ında değil, common pool'da tamamlanır. Çağırana bir kopya verilir; onu tamamlamak veya iptal etmek kuyrukta hiçbir şeyi değiştirmez. |
+| Tekrar eden çağrı (aynı `@AsyncIdempotencyKey`) | İlk çağrı hâlâ bekliyorsa tekrar eden çağrı aynı sonucu alır. Sonrasında `AsyncResultUnavailableException(DUPLICATE)` ile biter. |
+
+Sonuç yalnızca bellekte tutulur, kuyruğa yazılmaz. Yeniden başlamadan sonra da gereken bir değer metodun kendi deposuna veya result handler'a aittir.
+
+```java
+@Bean
+AsyncResultHandler quoteResults(QuoteStore store) {
+    return result -> store.save(result.invocationId(), result.value(), result.failure()); // kısa tut
+}
+```
+
+Handler, sonuç kalıcı hale geldikten sonra bir ASL worker'ında çalışır. Fırlattığı exception'lar yakalanır ve sayılır (`resultHandlerFailures`).
 
 ## 7. MapDB’yi Güvenli Açma
 
@@ -248,7 +282,11 @@ Tek bir merkezi admin server tüm uygulama ve replica'ları yönetir. Sunucu bir
 
 **Ayar modeli.** Sunucu yalnızca uygulamanın kendi `application.yml` değerinden farklı olan override'ları tutar: uygulama düzeyinde (kalıcı) veya replica düzeyinde (yalnız bellekte, replica kapanınca silinir). Yeni açılan replica kayıt olurken güncel override'ları alır. Override kaldırılınca metot yml değerine döner. Limitler replica başınadır: üç replica'da `max-concurrency: 20` toplamda 60 eşzamanlı çağrıya izin verir.
 
-**Kuyruk işlemleri.** Her replica kendi MapDB kuyruğuna sahiptir; bu yüzden replay ve delete kaydı tutan replica'ya gider, browse ve clear ise tek bir replica'ya ya da hepsine gönderilebilir. Portalde bir metodun **Queue** butonu (veya "failed" etiketi) replica'lara soran ve kayıtları Replay ve Delete ile listeleyen bir pencere açar; cevap her replica'nın bir sonraki heartbeat'iyle gelir (portal açıkken yaklaşık 2 sn). Her kayıtta payload özeti, payload tipi ve versiyonu, kodek, hata kategorisi, hata tipi ve son hata görünür; payload'ın kendisi replica'dan hiç çıkmaz. Özet, `asl.async.mapdb.payload.summary-policy` ayarının sakladığı değerdir: varsayılanda (`TYPE_ONLY`) payload tipi, `CODEC` ile argümanların kısa metni (iş verisi içerebilir), `NONE` ile hiçbir şey. Browse bu özetleri ve hata metinlerini sunucuya gönderdiği için replica `asl.admin.client.queue-browse=true` vermedikçe kapalıdır; `asl.admin.client.max-summary-chars` (200) özetleri keser. Sunucu bunları yalnız bellekte, uygulama başına yaklaşık 500 kayıt kadar tutar.
+**Süreli override.** Bir override sınırlı bir süre için verilebilir (portalde *Keep for*: 15 dk, 1 sa, 4 sa veya 24 sa; API'de `durationSeconds`). Süre dolunca metot önceki override'a döner; önceden override yoksa yml değerine döner. Bu değişiklik audit'e `system` kullanıcısıyla `override.expired` olarak yazılır. Süreli bir override tekrar süreli değiştirilirse ilk "önceki" değer korunur. Kalıcı bir değişiklik veya kaldırma zamanlayıcıyı iptal eder. Uygulama düzeyindeki zamanlayıcılar sunucu yeniden başlasa da kalır; replica zamanlayıcıları replica ile birlikte gider.
+
+**Rate limit.** `rate-limit` (yml) veya portaldeki *Rate limit* alanı, replica başına saniyedeki çağrı sayısını sınırlar. SYNC modda sınırı aşan çağrı `RATE_LIMIT` ile reddedilir. ASYNC modda çağrılar yine kuyruğa alınır; consumer'lar saniyede en fazla bu kadar çalıştırma başlatır. Bir saniyelik çağrı tek seferde (burst) çalışabilir.
+
+**Kuyruk işlemleri.** Her replica kendi MapDB kuyruğuna sahiptir; bu yüzden replay ve delete kaydı tutan replica'ya gider, browse ve clear ise tek bir replica'ya ya da hepsine gönderilebilir. Portalde bir metodun **Queue** butonu (veya "failed" etiketi) replica'lara soran ve kayıtları Replay ve Delete ile listeleyen bir pencere açar; cevap her replica'nın bir sonraki heartbeat'iyle gelir (portal açıkken yaklaşık 2 sn). Her kayıtta payload özeti, payload tipi ve versiyonu, kodek, hata kategorisi, hata tipi ve son hata görünür; payload'ın kendisi replica'dan hiç çıkmaz. Özet, `asl.async.mapdb.payload.summary-policy` ayarının sakladığı değerdir: varsayılanda (`TYPE_ONLY`) payload tipi, `CODEC` ile argümanların kısa metni (iş verisi içerebilir), `NONE` ile hiçbir şey. Browse bu özetleri ve hata metinlerini sunucuya gönderdiği için replica `asl.admin.client.queue-browse=true` vermedikçe kapalıdır; `asl.admin.client.max-summary-chars` (200) özetleri keser. Sunucu bunları yalnız bellekte, uygulama başına yaklaşık 500 kayıt kadar tutar. Aynı penceredeki **Bulk…** filtreye uyan kayıtları toplu olarak replay veya delete eder: başarısız ve/veya bekleyen kayıtlar, hata kategorisi, zaman aralığı ve replica başına en fazla N kayıt (üst sınır 10.000). Kayıtları replica'nın kendisi seçer; bu yüzden listede görünmeyen kayıtlara da ulaşır. Çalışan kayıtlara hiç dokunulmaz, replay yalnız başarısız kayıtları alır. Önce kapsamı tam olarak gösteren bir onay gelir; her replica kaç kayıt işlediğini bildirir. Tek komut en fazla 50.000 kayda bakar ve tek commit yapar.
 
 **Arama ve filtreleme.** Sol menü uygulamaları ada göre filtreler ve yalnız ilgilenilmesi gerekenleri (ayar hatası, hatalı kuyruk kaydı, ayarı henüz uygulamayan replica) gösterebilir. Uygulama sayfasında metot listesi servis veya metot adına, servise, replica'ya ve duruma (durdurulmuş, async, kuyruk dolu, hatalı kayıt, hata, override'lı, replica'lar farklı) göre filtrelenir. Bir replica seçiliyken toplamlar, özet kutuları, replica listesi ve son komutlar yalnız o replica'yı gösterir.
 
@@ -319,9 +357,9 @@ Portal sayfası `/asl-admin/api` altındaki küçük bir JSON API'sini çağır�
 | `GET /apps` | Bağlı uygulamalar |
 | `GET /apps/{app}` | Metotlar, son ham sayaçlarıyla replica'lar, override'lar ve komut sonuçları; uygulamayı izleniyor olarak da işaretler (daha sık heartbeat) |
 | `GET /apps/{app}/history?serviceId=&methodId=` | Replica başına saklanan telemetri noktaları |
-| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, isteğe bağlı `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads` |
+| `POST /apps/{app}/overrides` | Form: `serviceId`, `methodId`, isteğe bağlı `instance`, `enabled`, `async`, `maxConcurrency`, `consumerThreads`, `rateLimit` (çağrı/sn, `0` sınırı kaldırır), `durationSeconds` (süreli override, 10 sn ile 7 gün arası) |
 | `DELETE /apps/{app}/overrides?serviceId=&methodId=[&instance=]` | Override'ı kaldırır; metot yml değerine döner |
-| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`), `serviceId`, `methodId`, isteğe bağlı `instance`, `entryId`, `limit`; `commandIds` döner |
+| `POST /apps/{app}/commands` | Form: `type` (`BROWSE_QUEUE`, `REPLAY_ENTRY`, `DELETE_ENTRY`, `CLEAR_QUEUE`, `RESET_OBSERVATIONS`, `REPLAY_MATCHING`, `DELETE_MATCHING`), `serviceId`, `methodId`, isteğe bağlı `instance`, `entryId`, `limit`; iki toplu tip için ayrıca `states` (`FAILED`, `PENDING`, `RETRY_WAIT`, virgülle; varsayılan `FAILED`), `category` (kategorisizler için `-`), `from`, `to` (epoch ms) ve replica başına 1–10.000 arası `limit`; `commandIds` döner |
 | `GET /audit?limit=100` | Son audit kayıtları |
 
 Replica override ve komutları bir sonraki heartbeat'inde alır. Replica'nın `appliedConfigVersion` değeri uygulamanın `configVersion` değerine eşitse (`inSync` true) güncel ayarları uygulamıştır. Komut sonuçları `GET /apps/{app}` cevabındaki `commands` listesinde görünür.

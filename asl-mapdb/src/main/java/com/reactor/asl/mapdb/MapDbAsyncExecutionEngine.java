@@ -7,6 +7,9 @@ import com.reactor.asl.core.AsyncMethodBinding;
 import com.reactor.asl.core.AsyncPayloadCodec;
 import com.reactor.asl.core.AsyncPayloadCodecException;
 import com.reactor.asl.core.AsyncPayloadMetadata;
+import com.reactor.asl.core.AsyncResult;
+import com.reactor.asl.core.AsyncResultHandler;
+import com.reactor.asl.core.AsyncResultUnavailableException;
 import com.reactor.asl.core.ExecutionMode;
 import com.reactor.asl.core.JavaObjectStreamAsyncPayloadCodec;
 import com.reactor.asl.core.MethodBufferSnapshot;
@@ -19,6 +22,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
@@ -69,6 +76,14 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
     private final LongAdder rejectedSchedules = new LongAdder();
     private final LongAdder executionTimeouts = new LongAdder();
     private final LongAdder rateLimitedSchedules = new LongAdder();
+    /** Callers waiting for the outcome of an ASYNC CompletableFuture invocation, by invocation id. */
+    private final Map<Long, PendingResult> pendingResults = new ConcurrentHashMap<>();
+    private volatile AsyncResultHandler resultHandler;
+    private final LongAdder resultsWithoutCaller = new LongAdder();
+    private final LongAdder resultHandlerFailures = new LongAdder();
+    private final LongAdder completionTimeouts = new LongAdder();
+    private final LongAdder resultWaitTimeouts = new LongAdder();
+    private final AtomicLong lastResultSweepNanos = new AtomicLong(System.nanoTime());
     private final LongAdder reclaimedLeases = new LongAdder();
     private final LongAdder releasedOnShutdown = new LongAdder();
     private final AtomicReference<String> lastWorkerFailure = new AtomicReference<>();
@@ -422,31 +437,117 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         long admissionDeadlineNanos = admissionDeadlineNanos();
         acquireEnqueuePermit(admissionDeadlineNanos);
         try {
-            Object[] safeArguments = arguments == null ? new Object[0] : arguments;
-            byte[] encodedPayload = payloadCodec.encode(runtime.serviceId(), runtime.methodId(), safeArguments);
-            AsyncPayloadMetadata payloadMetadata = payloadCodec.describe(
-                    runtime.serviceId(),
-                    runtime.methodId(),
-                    safeArguments,
-                    encodedPayload
-            );
-            QueueStore.NewInvocation invocation = new QueueStore.NewInvocation(
-                    runtime.serviceId(),
-                    runtime.methodId(),
-                    payloadCodec.id(),
-                    encodedPayload,
-                    payloadSummary(runtime, safeArguments, payloadMetadata),
-                    payloadMetadata.payloadType(),
-                    payloadMetadata.payloadVersion(),
-                    context.idempotencyKey(),
-                    System.currentTimeMillis()
-            );
-
-            enqueueDurably(invocation, admissionDeadlineNanos);
+            enqueueDurably(newInvocation(runtime, arguments, context), admissionDeadlineNanos, null);
             signalScheduler();
         } finally {
             enqueuePermits.release();
         }
+    }
+
+    private QueueStore.NewInvocation newInvocation(MethodRuntime runtime, Object[] arguments, AsyncInvocationContext context) {
+        Object[] safeArguments = arguments == null ? new Object[0] : arguments;
+        byte[] encodedPayload = payloadCodec.encode(runtime.serviceId(), runtime.methodId(), safeArguments);
+        AsyncPayloadMetadata payloadMetadata = payloadCodec.describe(
+                runtime.serviceId(),
+                runtime.methodId(),
+                safeArguments,
+                encodedPayload
+        );
+        return new QueueStore.NewInvocation(
+                runtime.serviceId(),
+                runtime.methodId(),
+                payloadCodec.id(),
+                encodedPayload,
+                payloadSummary(runtime, safeArguments, payloadMetadata),
+                payloadMetadata.payloadType(),
+                payloadMetadata.payloadVersion(),
+                context.idempotencyKey(),
+                System.currentTimeMillis()
+        );
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> CompletableFuture<T> enqueueForResult(MethodRuntime runtime, Object[] arguments, AsyncInvocationContext context) {
+        Objects.requireNonNull(runtime, "runtime");
+        Objects.requireNonNull(context, "context");
+        ensureOpen();
+        MethodRegistration registration = registrations.get(key(runtime.serviceId(), runtime.methodId()));
+        if (registration == null || !registration.binding.returnsFuture()) {
+            throw new IllegalStateException("Method is not a registered CompletableFuture method: " + runtime.methodId());
+        }
+        if (pendingResults.size() >= options.maxPendingResults()) {
+            throw new AsyncAdmissionRejectedException(AsyncAdmissionRejectedException.Reason.RESULT_CAPACITY,
+                    "Too many callers are waiting for ASYNC results (" + options.maxPendingResults() + ")");
+        }
+        validateAdmissionInput(runtime, context);
+
+        long admissionDeadlineNanos = admissionDeadlineNanos();
+        acquireEnqueuePermit(admissionDeadlineNanos);
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        PendingResult pending = new PendingResult(future,
+                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(options.resultWaitTimeoutMillis()));
+        long[] registered = {-1L};
+        QueueStore.EnqueueResult enqueued;
+        try {
+            enqueued = enqueueDurably(newInvocation(runtime, arguments, context), admissionDeadlineNanos, result -> {
+                // Runs on the single writer thread inside the enqueue mutation. Claims go through the same thread,
+                // so no worker can finish this invocation before the caller's future is registered.
+                if (!result.deduplicated()) {
+                    pendingResults.put(result.invocationId(), pending);
+                    registered[0] = result.invocationId();
+                }
+            });
+            signalScheduler();
+        } catch (RuntimeException failure) {
+            if (registered[0] > 0L) {
+                pendingResults.remove(registered[0], pending);
+            }
+            throw failure;
+        } finally {
+            enqueuePermits.release();
+        }
+        if (enqueued.deduplicated()) {
+            PendingResult earlier = pendingResults.get(enqueued.invocationId());
+            if (earlier != null) {
+                return (CompletableFuture<T>) earlier.future().copy();
+            }
+            return CompletableFuture.failedFuture(new AsyncResultUnavailableException(
+                    AsyncResultUnavailableException.Reason.DUPLICATE, Long.toString(enqueued.invocationId()),
+                    "An invocation with this idempotency key was accepted before; its outcome went to its first caller "
+                            + "or to the AsyncResultHandler"));
+        }
+        // A copy: completing or cancelling it does not touch the engine's future or the queued invocation.
+        return (CompletableFuture<T>) future.copy();
+    }
+
+    @Override
+    public void resultHandler(AsyncResultHandler handler) {
+        this.resultHandler = handler;
+    }
+
+    /** Callers waiting for an outcome right now. */
+    public int pendingResults() {
+        return pendingResults.size();
+    }
+
+    /** Outcomes of CompletableFuture methods that no caller was waiting for (handed to the result handler). */
+    public long resultsWithoutCaller() {
+        return resultsWithoutCaller.sum();
+    }
+
+    public long resultHandlerFailures() {
+        return resultHandlerFailures.sum();
+    }
+
+    /** Invocations whose CompletableFuture did not complete within the completion timeout. */
+    public long completionTimeouts() {
+        return completionTimeouts.sum();
+    }
+
+    /** Callers' futures failed because no outcome arrived within the result wait timeout. */
+    public long resultWaitTimeouts() {
+        return resultWaitTimeouts.sum();
     }
 
     @Override
@@ -524,6 +625,8 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
             RuntimeException failure = null;
             failure = stopCoordinator(failure);
             failure = stopWorkers(failure);
+            // Workers had their chance to finish; whoever still waits is told why, the invocations stay queued.
+            failPendingResultsOnShutdown();
             try {
                 writer.close();
             } catch (RuntimeException exception) {
@@ -569,15 +672,24 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         }
     }
 
-    private void enqueueDurably(QueueStore.NewInvocation invocation, long deadlineNanos) {
+    private QueueStore.EnqueueResult enqueueDurably(
+            QueueStore.NewInvocation invocation,
+            long deadlineNanos,
+            java.util.function.Consumer<QueueStore.EnqueueResult> onEnqueued
+    ) {
         while (true) {
             long observedVersion = queueStore.projectionVersion();
             long admissionWaitMillis = options.overflowPolicy() == QueueOverflowPolicy.REJECT
                     ? 0L
                     : remainingMillis(deadlineNanos);
             try {
-                writer.execute(() -> queueStore.enqueue(invocation), admissionWaitMillis);
-                return;
+                return writer.execute(() -> {
+                    QueueStore.EnqueueResult result = queueStore.enqueue(invocation);
+                    if (onEnqueued != null) {
+                        onEnqueued.accept(result);
+                    }
+                    return result;
+                }, admissionWaitMillis);
             } catch (AsyncAdmissionRejectedException rejection) {
                 if (!isCapacityRejection(rejection)
                         || options.overflowPolicy() == QueueOverflowPolicy.REJECT) {
@@ -682,6 +794,7 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 enforceExecutionTimeouts();
                 activateDueRetries(now);
                 schedulePendingLanes();
+                expirePendingResults();
                 consecutiveFailures = 0;
                 awaitSchedulerSignal(coordinatorWaitMillis(now));
             } catch (InterruptedException interrupted) {
@@ -862,8 +975,14 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
             activeLeases.put(claimed.invocationId(), lease);
 
             Throwable businessFailure = null;
+            Object value = null;
             try {
-                registration.binding.invoke(decodeArguments(claimed, registration.binding));
+                Object returned = registration.binding.invokeForResult(decodeArguments(claimed, registration.binding));
+                if (registration.binding.returnsFuture()) {
+                    // The invocation is done when the method's future is: the worker (and its concurrency slot)
+                    // stays with it, bounded by the completion timeout and the execution-timeout watchdog.
+                    value = awaitCompletion(returned, runtime);
+                }
             } catch (Throwable failure) {
                 businessFailure = failure;
             }
@@ -884,6 +1003,9 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 throw new IllegalStateException("Lost async invocation lease while completing " + claimed.invocationId());
             }
             runtime.onSuccess();
+            if (registration.binding.returnsFuture()) {
+                deliver(claimed, value, null);
+            }
         } catch (Throwable failure) {
             boolean timedOut = lease != null && lease.timedOut.get();
             if (claimed != null && closed.get() && !timedOut) {
@@ -892,7 +1014,10 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                 releaseOnShutdown(claimed);
             } else if (claimed != null) {
                 runtime.onError(failure);
-                recordFailure(claimed, failure, timedOut);
+                boolean finalFailure = recordFailure(claimed, failure, timedOut);
+                if (finalFailure && registration.binding.returnsFuture()) {
+                    deliver(claimed, null, failure);
+                }
             } else if (!(failure instanceof InterruptedException)) {
                 recordWorkerFailure(failure);
                 // Back off this lane so a failing claim path cannot turn into a scheduling spin.
@@ -941,7 +1066,8 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         }
     }
 
-    private void recordFailure(QueueStore.ClaimedInvocation claimed, Throwable failure, boolean timedOut) {
+    /** Returns {@code true} when the invocation failed for good (recorded as FAILED, no retry scheduled). */
+    private boolean recordFailure(QueueStore.ClaimedInvocation claimed, Throwable failure, boolean timedOut) {
         String error = timedOut
                 ? truncate("Execution exceeded " + options.executionTimeoutMillis() + " ms and was interrupted",
                         options.maxErrorCharacters())
@@ -950,7 +1076,7 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         String category = timedOut ? ERROR_CATEGORY_TIMEOUT : classifyErrorCategory(failure);
         long retryAt = System.currentTimeMillis() + retryDelayMillis(claimed.attempt());
         try {
-            internalWrite(() -> queueStore.fail(
+            QueueStore.FailureResult result = internalWrite(() -> queueStore.fail(
                     claimed.invocationId(),
                     claimed.leaseToken(),
                     error,
@@ -958,9 +1084,97 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
                     category,
                     retryAt
             ));
+            return result != null && result.applied() && !result.retryScheduled();
         } catch (RuntimeException storageFailure) {
             failure.addSuppressed(storageFailure);
             recordWorkerFailure(storageFailure);
+            // The record stays IN_PROGRESS and runs again once its lease expires: not an outcome yet.
+            return false;
+        }
+    }
+
+    /** Waits for the future an ASYNC future method returned and gives back its value or its failure. */
+    private Object awaitCompletion(Object returned, MethodRuntime runtime) throws Throwable {
+        if (!(returned instanceof CompletableFuture<?> future)) {
+            return null; // the method returned null instead of a future: nothing to wait for
+        }
+        try {
+            return future.get(options.completionTimeoutMillis(), TimeUnit.MILLISECONDS);
+        } catch (ExecutionException failed) {
+            throw failed.getCause() == null ? failed : failed.getCause();
+        } catch (CancellationException cancelled) {
+            throw cancelled;
+        } catch (TimeoutException timeout) {
+            completionTimeouts.increment();
+            future.cancel(false); // tells the method's own code that nobody waits any more
+            throw new com.reactor.asl.core.AsyncCompletionTimeoutException("The CompletableFuture of "
+                    + runtime.serviceId() + "::" + runtime.methodId() + " did not complete within "
+                    + options.completionTimeoutMillis() + " ms");
+        }
+    }
+
+    /**
+     * Hands a final outcome to the caller waiting for it, or to the result handler when nobody waits. The caller's
+     * future is completed on the common pool, so callers' callbacks never run on (and never hold) an ASL worker.
+     */
+    private void deliver(QueueStore.ClaimedInvocation claimed, Object value, Throwable failure) {
+        PendingResult pending = pendingResults.remove(claimed.invocationId());
+        if (pending != null) {
+            CompletableFuture<Object> future = pending.future();
+            if (failure == null) {
+                future.completeAsync(() -> value);
+            } else {
+                CompletableFuture.runAsync(() -> future.completeExceptionally(failure));
+            }
+            return;
+        }
+        resultsWithoutCaller.increment();
+        AsyncResultHandler handler = resultHandler;
+        if (handler == null) {
+            return;
+        }
+        try {
+            handler.onResult(new AsyncResult(claimed.serviceId(), claimed.methodId(), Long.toString(claimed.invocationId()),
+                    value, failure, false));
+        } catch (RuntimeException handlerFailure) {
+            resultHandlerFailures.increment();
+            recordWorkerFailure(handlerFailure);
+        }
+    }
+
+    /** Fails callers' futures whose wait ran out; checked about once a second. */
+    private void expirePendingResults() {
+        if (pendingResults.isEmpty()) {
+            return;
+        }
+        long now = System.nanoTime();
+        long last = lastResultSweepNanos.get();
+        if (now - last < TimeUnit.SECONDS.toNanos(1) || !lastResultSweepNanos.compareAndSet(last, now)) {
+            return;
+        }
+        for (Map.Entry<Long, PendingResult> entry : pendingResults.entrySet()) {
+            PendingResult pending = entry.getValue();
+            if (now - pending.deadlineNanos() >= 0L && pendingResults.remove(entry.getKey(), pending)) {
+                resultWaitTimeouts.increment();
+                String id = Long.toString(entry.getKey());
+                CompletableFuture.runAsync(() -> pending.future().completeExceptionally(new AsyncResultUnavailableException(
+                        AsyncResultUnavailableException.Reason.WAIT_TIMEOUT, id,
+                        "No outcome within " + options.resultWaitTimeoutMillis() + " ms; invocation " + id
+                                + " still runs and its outcome goes to the AsyncResultHandler")));
+            }
+        }
+    }
+
+    /** On shutdown: the invocations stay queued and run after the restart; their callers are told now. */
+    private void failPendingResultsOnShutdown() {
+        for (Long id : java.util.List.copyOf(pendingResults.keySet())) {
+            PendingResult pending = pendingResults.remove(id);
+            if (pending != null) {
+                pending.future().completeExceptionally(new AsyncResultUnavailableException(
+                        AsyncResultUnavailableException.Reason.SHUTDOWN, Long.toString(id),
+                        "The async engine is shutting down; invocation " + id
+                                + " stays queued, runs after the restart and its outcome goes to the AsyncResultHandler"));
+            }
         }
     }
 
@@ -1179,6 +1393,9 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
     }
 
     private static String classifyErrorCategory(Throwable throwable) {
+        if (throwable instanceof com.reactor.asl.core.AsyncCompletionTimeoutException) {
+            return ERROR_CATEGORY_TIMEOUT;
+        }
         if (throwable instanceof AsyncPayloadCodecException) {
             String message = throwable.getMessage();
             if (message != null && message.toLowerCase(java.util.Locale.ROOT).contains("migration")) {
@@ -1231,6 +1448,9 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
         } catch (RuntimeException cleanupFailure) {
             failure.addSuppressed(cleanupFailure);
         }
+    }
+
+    private record PendingResult(CompletableFuture<Object> future, long deadlineNanos) {
     }
 
     private record MethodRegistration(MethodRuntime runtime, AsyncMethodBinding binding) {

@@ -45,7 +45,13 @@ public class AslMapDbHealthIndicator extends AbstractHealthIndicator {
                 .withDetail("activeTasks", health.activeTasks())
                 .withDetail("workerFailures", health.workerFailures())
                 .withDetail("executionTimeouts", engine.executionTimeouts())
-                .withDetail("reclaimedLeases", engine.reclaimedLeases());
+                .withDetail("reclaimedLeases", engine.reclaimedLeases())
+                .withDetail("rateLimitedSchedules", engine.rateLimitedSchedules())
+                .withDetail("pendingResults", engine.pendingResults())
+                .withDetail("completionTimeouts", engine.completionTimeouts())
+                .withDetail("resultWaitTimeouts", engine.resultWaitTimeouts())
+                .withDetail("resultsWithoutCaller", engine.resultsWithoutCaller())
+                .withDetail("resultHandlerFailures", engine.resultHandlerFailures());
         if (health.storeFailureType() != null) {
             builder.withDetail("storeFailureType", health.storeFailureType());
         }

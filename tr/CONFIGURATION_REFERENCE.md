@@ -49,7 +49,7 @@ asl:
 | `.enabled` | annotation değeri | Metodu startup sırasında açar veya kapatır. |
 | `.max-concurrency` | annotation değeri | Aktif SYNC/ASYNC çalışma eşzamanlılığını değiştirir. |
 | `.unavailable-message` | annotation/runtime varsayılanı | Disabled çağrıya dönen mesajı değiştirir. |
-| `.execution-mode` | `SYNC` | `SYNC` veya `ASYNC`; async için uygun `void` metot ve engine gerekir. |
+| `.execution-mode` | `SYNC` | `SYNC` veya `ASYNC`; async için async-capable bir metot (`void` veya `CompletableFuture<T>`) ve engine gerekir. |
 | `.consumer-threads` | annotation değeri | Lane consumer hedefini belirler; sıfır değeri iş kabul eder fakat tüketmez. |
 | `.rate-limit` | `0` (sınır yok) | Replica başına saniyedeki çağrı sayısı. SYNC modda sınırı aşan çağrı `RATE_LIMIT` sebebiyle reddedilir. ASYNC modda çağrılar yine kuyruğa alınır; consumer'lar saniyede en fazla bu kadar çalıştırma başlatır. Bir saniyelik çağrı tek seferde (burst) çalışabilir. Negatif değer startup'ı durdurur. |
 
@@ -178,6 +178,9 @@ asl:
 | `asl.async.mapdb.workers.drain-backlog-in-sync-mode` | `true` | Lane SYNC moda geri alındığında kabul edilmiş backlog'u tüketmeye devam eder (consumer thread > 0 gerekir). `false` olursa iş, lane tekrar ASYNC olana kadar kuyrukta bekler. |
 | `management.health.aslmapdb.enabled` | `true` | Actuator classpath'teyse `aslMapDb` health bileşenini kaydeder. |
 | `asl.async.mapdb.workers.execution-timeout-millis` | `0` | Bu süreyi aşan iş çalıştırmasını interrupt eder ve `TIMEOUT` hatası kaydeder (deneme sayılır). `0` kapalıdır. Interrupt iş birliğine dayalıdır: interrupt'ı yok sayan kod worker thread'ini tutmaya devam eder. |
+| `asl.async.mapdb.workers.completion-timeout-millis` | `300000` | ASYNC `CompletableFuture` metotlar: worker'ın metodun döndürdüğü future'ı bekleyeceği en uzun süre. Aşılırsa çalıştırma `AsyncCompletionTimeoutException` ile, `TIMEOUT` kategorisinde başarısız olur (deneme hakkı varsa yeniden denenir) ve metodun future'ı iptal edilir. Pozitif olmalıdır. |
+| `asl.async.mapdb.workers.result-wait-timeout-millis` | `600000` | ASYNC `CompletableFuture` metotlar: çağıranın future'ının sonucu en fazla ne kadar bekleyeceği. Aşılırsa future `AsyncResultUnavailableException(WAIT_TIMEOUT)` ile biter; çağrı yine çalışır ve sonucu `AsyncResultHandler`'a gider. Pozitif olmalıdır. |
+| `asl.async.mapdb.workers.max-pending-results` | `10000` | ASYNC `CompletableFuture` metotlar: aynı anda sonuç bekleyebilecek çağıran sayısı. Fazlası, kuyruğa hiçbir şey yazılmadan `AsyncAdmissionRejectedException(RESULT_CAPACITY)` ile reddedilir. Pozitif olmalıdır. |
 
 ### Retry ve Idempotency
 
