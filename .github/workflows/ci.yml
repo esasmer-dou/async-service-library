@@ -36,7 +36,7 @@ jobs:
 
       - name: Upload failing test evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-evidence-${{ matrix.os }}-${{ matrix.distribution }}
           path: "**/target/surefire-reports/**"
@@ -68,7 +68,7 @@ jobs:
 
       - name: Upload supply-chain and API evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: supply-chain-and-api-evidence
           path: |
