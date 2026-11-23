@@ -486,6 +486,22 @@ public final class MapDbAsyncExecutionEngine implements AsyncExecutionEngine, Au
     }
 
     @Override
+    public int deleteMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+        int deleted = internalWrite(() -> queueStore.deleteMatching(serviceId, methodId, filter));
+        signalScheduler();
+        return deleted;
+    }
+
+    @Override
+    public int replayMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+        int replayed = internalWrite(() -> queueStore.replayMatching(serviceId, methodId, filter));
+        if (replayed > 0) {
+            signalScheduler();
+        }
+        return replayed;
+    }
+
+    @Override
     public void applyRuntime(MethodRuntime runtime) {
         Objects.requireNonNull(runtime, "runtime");
         if (runtime.asyncCapable()) {

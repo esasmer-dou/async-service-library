@@ -243,5 +243,12 @@ public final class AslAdminMessages {
         public static final int DELETE_ENTRY = 3;
         public static final int BROWSE_QUEUE = 4;
         public static final int RESET_OBSERVATIONS = 5;
+        /**
+         * Bulk commands: {@code entryId} carries the filter text
+         * ({@code states=FAILED;category=TIMEOUT;from=…;to=…}) and {@code limit} the most entries to change.
+         * Pods that predate them answer REJECTED ("unknown command type").
+         */
+        public static final int REPLAY_MATCHING = 6;
+        public static final int DELETE_MATCHING = 7;
     }
 }

@@ -594,6 +594,67 @@ final class MapDbQueueStore implements QueueStore {
         }
     }
 
+    /** Entries looked at by one bulk command at most, so a huge lane cannot hold the store monitor for long. */
+    static final int MAX_BULK_SCAN = 50_000;
+
+    @Override
+    public int deleteMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+        return applyMatching(serviceId, methodId, filter, false);
+    }
+
+    @Override
+    public int replayMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+        return applyMatching(serviceId, methodId, filter, true);
+    }
+
+    private int applyMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter, boolean replay) {
+        Objects.requireNonNull(filter, "filter");
+        synchronized (monitor) {
+            ensureWritable();
+            Integer laneId = laneIds.get(laneKey(serviceId, methodId));
+            if (laneId == null) {
+                return 0;
+            }
+            int changed = 0;
+            int scanned = 0;
+            for (AsyncInvocationState state : AsyncInvocationState.values()) {
+                if (state == AsyncInvocationState.IN_PROGRESS || (replay && state != AsyncInvocationState.FAILED)
+                        || !filter.includesState(state.name())) {
+                    continue;
+                }
+                // Ids first (bounded): the index must not change while it is being iterated.
+                List<Long> ids = new ArrayList<>();
+                collectIds(laneId, state, MAX_BULK_SCAN - scanned, ids);
+                for (Long id : ids) {
+                    if (changed >= filter.max()) {
+                        break;
+                    }
+                    scanned++;
+                    QueueRecord current = requiredRecord(id);
+                    if (!filter.matches(current.state().name(), current.errorCategory(), current.enqueuedAtEpochMillis())) {
+                        continue;
+                    }
+                    if (replay) {
+                        replaceRecord(current, current.replayed());
+                    } else {
+                        removeRecord(current);
+                    }
+                    changed++;
+                }
+                if (changed >= filter.max() || scanned >= MAX_BULK_SCAN) {
+                    break;
+                }
+            }
+            if (changed > 0) {
+                advanceProjectionVersion();
+                commitOrFail("Could not durably " + (replay ? "replay" : "delete") + " matching entries of "
+                        + serviceId + "::" + methodId);
+                monitor.notifyAll();
+            }
+            return changed;
+        }
+    }
+
     @Override
     public boolean hasPending(String serviceId, String methodId) {
         return guardedRead(() -> unguardedHasPending(serviceId, methodId));

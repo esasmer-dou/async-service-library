@@ -784,7 +784,8 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
             `${c.value} ${c.value === 1 ? "entry" : "entries"} · Browse again`)
         : c.type === "BROWSE_QUEUE" && c.status === "OK" ? el("button", { class: "btn sm soft", type: "button", onclick: () => openQueue(app, c, c.instance, [c]) }, icon("eye"),
             `${c.entries.length} ${c.entries.length === 1 ? "entry" : "entries"} · View`)
-        : c.type === "CLEAR_QUEUE" ? `${c.value} removed` : String(c.value)),
+        : c.type === "CLEAR_QUEUE" || c.type === "DELETE_MATCHING" ? `${c.value} removed`
+        : c.type === "REPLAY_MATCHING" ? `${c.value} queued again` : String(c.value)),
       el("td", { class: "muted" }, c.actor || ""),
       el("td", { class: "muted" }, c.completedAtMillis ? new Date(c.completedAtMillis).toLocaleTimeString() : ""))))
       : empty("check", "success", activeFilter(f) ? "No command matches the filter" : "No commands yet", "Browse, replay, delete and clear show up here."));
@@ -881,7 +882,9 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       const s = inst && idx >= 0 ? inst.samples[idx] : null;
       return s ? s[Q_PENDING] + s[Q_FAILED] + s[Q_RUNNING] : null;
     };
+    let lastResults = [];
     function show(results, missing) {
+      lastResults = results;
       const rows = [], notes = [];
       let listed = 0;
       for (const c of results) {
@@ -968,8 +971,65 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       busy = false;
       browse();
     }
+    // Bulk replay / delete: the replica selects the entries itself, so it also reaches entries the list above does not show.
+    function bulk() {
+      if (busy) return;
+      const categories = [...new Set(lastResults.flatMap(c => (c.entries || []).map(e => e.errorCategory)).filter(Boolean))].sort();
+      const field = (id, text, control, help) => el("div", { class: "field" }, el("label", { for: "b-" + id }, text), control, help ? el("div", { class: "help" }, help) : null);
+      const states = el("select", { id: "b-states" },
+        el("option", { value: "FAILED" }, "Failed"),
+        el("option", { value: "PENDING,RETRY_WAIT" }, "Waiting (pending or retry)"),
+        el("option", { value: "FAILED,PENDING,RETRY_WAIT" }, "Failed or waiting"));
+      const category = el("select", { id: "b-category" }, el("option", { value: "" }, "Any category"),
+        ...categories.map(c => el("option", { value: c }, c)), el("option", { value: "-" }, "No category"));
+      const when = el("select", { id: "b-when" },
+        el("option", { value: "" }, "Any time"), el("option", { value: "-3600000" }, "In the last hour"), el("option", { value: "-86400000" }, "In the last 24 hours"),
+        el("option", { value: "3600000" }, "More than an hour ago"), el("option", { value: "86400000" }, "More than 24 hours ago"));
+      const max = el("input", { id: "b-max", type: "number", min: 1, max: 10000, value: 100 });
+      const form = el("div", { class: "fields" },
+        field("states", "Entries", states, "Running entries are never touched. Replay applies to failed entries only."),
+        field("category", "Error category", category, categories.length ? "Categories seen in the list above." : "Browse first to pick a category from the list."),
+        field("when", "Queued", when, "By this browser's clock."),
+        field("max", "At most", max, `Per replica, up to 10000.${everyReplica ? " The command goes to every replica." : ""}`));
+      let closeBulk = () => {};
+      async function run(type) {
+        const limit = Math.floor(Number(max.value));
+        if (!(limit >= 1 && limit <= 10000)) { toast("At most must be between 1 and 10000.", "error"); return; }
+        const body = { ...base, instance, type, states: states.value, limit };
+        if (category.value) body.category = category.value;
+        if (when.value) { const ms = Number(when.value), now = Date.now(); if (ms < 0) body.from = now + ms; else body.to = now - ms; }
+        const replay = type === "REPLAY_MATCHING";
+        if (replay && !states.value.includes("FAILED")) { toast("Replay applies to failed entries; pick Failed.", "error"); return; }
+        const what = [replay ? "failed" : states.options[states.selectedIndex].text.toLowerCase(), "entries",
+          category.value ? (category.value === "-" ? "without a category" : `with category ${category.value}`) : null,
+          when.value ? when.options[when.selectedIndex].text.toLowerCase() : null].filter(Boolean).join(" ");
+        const where = everyReplica ? `on every replica (${(lastApp && lastApp.name === appName ? lastApp : app).instances.length})` : `on ${instance}`;
+        const ok = await confirmDialog(replay ? "Replay matching entries?" : "Delete matching entries?",
+          replay ? `Queues up to ${limit} ${what} again ${where}.` : `Deletes up to ${limit} ${what} ${where}. This cannot be undone.`,
+          replay ? "Replay" : "Delete");
+        if (!ok) return;
+        closeBulk();
+        busy = true;
+        working(`${replay ? "Replaying" : "Deleting"} matching entries…`);
+        try {
+          const r = await runCommand(appName, body, () => open);
+          const done = r.done.filter(c => c.status === "OK"), bad = r.done.filter(c => c.status !== "OK");
+          const total = done.reduce((a, c) => a + c.value, 0);
+          if (bad.length) toast(`${bad[0].instance}: ${bad[0].status}${bad[0].message ? " – " + bad[0].message : ""}`, "error");
+          else toast(`${total} ${total === 1 ? "entry" : "entries"} ${replay ? "queued again" : "deleted"} on ${done.length} ${done.length === 1 ? "replica" : "replicas"}.`
+            + (done.length < r.ids.length ? " Some replicas have not answered yet; see Recent commands." : ""));
+        } catch (err) { toast(err.message, "error"); }
+        busy = false;
+        browse();
+      }
+      closeBulk = openDialog("Bulk action", `${short(m.methodId)} · ${everyReplica ? "all replicas" : instance}`, form, done => [
+        el("button", { class: "btn outlined left", type: "button", onclick: done }, "Cancel"),
+        el("button", { class: "btn soft error", type: "button", onclick: () => run("DELETE_MATCHING") }, icon("trash"), "Delete matching"),
+        el("button", { class: "btn contained", type: "button", onclick: () => run("REPLAY_MATCHING") }, icon("replay"), "Replay matching")]);
+    }
     openDialog("Queue entries", `${m.serviceId} · ${short(m.methodId)} · ${everyReplica ? "all replicas" : instance}`, [status, wrap], close => [
       el("button", { class: "btn outlined left", type: "button", onclick: browse }, icon("replay"), "Refresh"),
+      el("button", { class: "btn soft", type: "button", onclick: bulk }, icon("filter"), "Bulk…"),
       el("button", { class: "btn soft error", type: "button", onclick: clearAll }, icon("trash"), "Clear queue"),
       el("button", { class: "btn contained", type: "button", onclick: close }, "Close")], "lg", () => { open = false; });
     if (preset) show(preset, 0); else browse();

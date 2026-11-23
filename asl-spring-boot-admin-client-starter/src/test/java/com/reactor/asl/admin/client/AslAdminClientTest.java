@@ -458,5 +458,45 @@ class AslAdminClientTest {
         public void applyRuntime(MethodRuntime runtime) {
             applied++;
         }
+
+        com.reactor.asl.core.QueueEntryFilter lastFilter;
+
+        @Override
+        public int deleteMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+            lastFilter = filter;
+            return 4;
+        }
+
+        @Override
+        public int replayMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter) {
+            lastFilter = filter;
+            return 2;
+        }
+    }
+
+    @Test
+    void runsBulkCommandsWithTheFilterAndClampsTheCap() throws Exception {
+        registry.attachAsyncExecutionEngine(engine);
+        AslAdminClient client = client(false);
+        register(client);
+        transport.reply(200, AslAdminCodec.encode(new BeatReply(false, 0, null, List.of(
+                new Command(1, Command.DELETE_MATCHING, 0, "states=PENDING;category=TIMEOUT", 50),
+                new Command(2, Command.REPLAY_MATCHING, 0, "states=FAILED;from=10", 1_000_000),
+                new Command(3, Command.DELETE_MATCHING, 0, "states=IN_PROGRESS", 5),
+                new Command(4, Command.REPLAY_MATCHING, 1, "states=FAILED", 5)))));
+        client.runOnce();
+        transport.reply(204, new byte[0]);
+        client.runOnce();
+        List<Ack> acks = AslAdminCodec.decodeBeat(transport.bodies.get(transport.bodies.size() - 1)).acks();
+        assertEquals(4, acks.size());
+        assertEquals(Ack.OK, acks.get(0).status());
+        assertEquals(4, acks.get(0).value());
+        assertEquals(Ack.OK, acks.get(1).status());
+        assertEquals(2, acks.get(1).value());
+        assertEquals(com.reactor.asl.core.QueueEntryFilter.MAX_PER_COMMAND, engine.lastFilter.max(), "the cap is clamped");
+        assertEquals(10, engine.lastFilter.fromMillis());
+        assertEquals(Ack.REJECTED, acks.get(2).status(), "running entries can never be selected");
+        assertTrue(acks.get(2).message().startsWith("invalid filter"), acks.get(2).message());
+        assertEquals(Ack.REJECTED, acks.get(3).status(), "find has no queue");
     }
 }

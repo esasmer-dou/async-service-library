@@ -34,7 +34,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * browser does all totals and trends. Only application-wide overrides reach the disk.
  */
 public final class InstanceRegistry {
-    private static final String[] COMMAND_NAMES = {"", "CLEAR_QUEUE", "REPLAY_ENTRY", "DELETE_ENTRY", "BROWSE_QUEUE", "RESET_OBSERVATIONS"};
+    private static final String[] COMMAND_NAMES = {"", "CLEAR_QUEUE", "REPLAY_ENTRY", "DELETE_ENTRY", "BROWSE_QUEUE", "RESET_OBSERVATIONS",
+            "REPLAY_MATCHING", "DELETE_MATCHING"};
 
     private final ServerConfig config;
     private final AdminStore store;
@@ -349,11 +350,18 @@ public final class InstanceRegistry {
 
     /** Queues a command for one replica, or every replica that has the method when {@code instanceName} is "*". */
     public List<Long> enqueueCommand(String application, String instanceName, MethodKey key, int type, String entryId, int limit, String actor, long now) {
-        if (type < Command.CLEAR_QUEUE || type > Command.RESET_OBSERVATIONS) {
+        if (type < Command.CLEAR_QUEUE || type > Command.DELETE_MATCHING) {
             throw new IllegalArgumentException("Unknown command type " + type);
         }
         if ((type == Command.REPLAY_ENTRY || type == Command.DELETE_ENTRY) && (entryId == null || entryId.isBlank())) {
             throw new IllegalArgumentException("entryId is required");
+        }
+        boolean bulk = type == Command.REPLAY_MATCHING || type == Command.DELETE_MATCHING;
+        if (bulk && (entryId == null || !entryId.startsWith("states="))) {
+            throw new IllegalArgumentException("A bulk command needs a filter");
+        }
+        if (bulk && (limit < 1 || limit > QueueFilterText.MAX_PER_COMMAND)) {
+            throw new IllegalArgumentException("limit must be between 1 and " + QueueFilterText.MAX_PER_COMMAND);
         }
         AppState app = requireApp(application);
         List<Long> ids = new ArrayList<>();
@@ -386,7 +394,8 @@ public final class InstanceRegistry {
         }
         if (config.auditEnabled && type != Command.BROWSE_QUEUE) {
             store.appendAudit(new AdminStore.AuditEntry(now, actor, application, "command." + COMMAND_NAMES[type],
-                    key.serviceId() + "#" + key.methodId() + " @" + instanceName + (entryId == null ? "" : " entry=" + entryId)));
+                    key.serviceId() + "#" + key.methodId() + " @" + instanceName
+                            + (entryId == null ? "" : bulk ? " " + entryId + ";max=" + limit : " entry=" + entryId)));
         }
         return ids;
     }

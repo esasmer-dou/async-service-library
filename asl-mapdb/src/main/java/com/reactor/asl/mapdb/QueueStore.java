@@ -49,6 +49,12 @@ interface QueueStore {
 
     boolean replay(String serviceId, String methodId, long invocationId);
 
+    /** Deletes matching entries (never running ones) in one commit; returns how many. */
+    int deleteMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter);
+
+    /** Queues matching FAILED entries again in one commit; returns how many. */
+    int replayMatching(String serviceId, String methodId, com.reactor.asl.core.QueueEntryFilter filter);
+
     boolean hasPending(String serviceId, String methodId);
 
     long projectionVersion();

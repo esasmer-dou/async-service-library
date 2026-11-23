@@ -560,10 +560,34 @@ public final class AslAdminClient implements AutoCloseable {
                         ? Ack.ok(command.commandId(), asyncProvider.replay(runtime.serviceId(), runtime.methodId(), command.entryId()) ? 1 : 0)
                         : reject(command, "method has no async queue");
                 case Command.BROWSE_QUEUE -> browse(command, runtime, provider);
+                case Command.DELETE_MATCHING -> provider == null
+                        ? reject(command, "method has no queue")
+                        : Ack.ok(command.commandId(), provider.deleteMatching(runtime.serviceId(), runtime.methodId(), filter(command)));
+                case Command.REPLAY_MATCHING -> provider instanceof AsyncAdminProvider asyncProvider
+                        ? Ack.ok(command.commandId(), asyncProvider.replayMatching(runtime.serviceId(), runtime.methodId(), filter(command)))
+                        : reject(command, "method has no async queue");
                 default -> reject(command, "unknown command type " + command.type());
             };
+        } catch (UnsupportedOperationException | InvalidFilter exception) {
+            return reject(command, truncate(String.valueOf(exception.getMessage())));
         } catch (RuntimeException exception) {
             return new Ack(command.commandId(), Ack.FAILED, 0, truncate(String.valueOf(exception.getMessage())), List.of());
+        }
+    }
+
+    /** The filter text rides in entryId, the cap in limit (clamped to what one command may change). */
+    private static com.reactor.asl.core.QueueEntryFilter filter(Command command) {
+        int max = Math.min(Math.max(1, command.limit()), com.reactor.asl.core.QueueEntryFilter.MAX_PER_COMMAND);
+        try {
+            return com.reactor.asl.core.QueueEntryFilter.parse(command.entryId(), max);
+        } catch (IllegalArgumentException invalid) {
+            throw new InvalidFilter("invalid filter: " + invalid.getMessage());
+        }
+    }
+
+    private static final class InvalidFilter extends RuntimeException {
+        InvalidFilter(String message) {
+            super(message, null, false, false);
         }
     }
 

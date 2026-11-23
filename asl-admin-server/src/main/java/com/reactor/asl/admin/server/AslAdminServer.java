@@ -330,8 +330,13 @@ public final class AslAdminServer implements AutoCloseable {
             if (action.equals("/commands") && method.equals("POST")) {
                 Map<String, String> form = form(readForm(exchange));
                 String instance = form.getOrDefault("instance", "");
+                int type = commandType(form.get("type"));
+                // Bulk commands: the filter is built here from form fields and rides in the entryId field.
+                String entryId = type == Command.REPLAY_MATCHING || type == Command.DELETE_MATCHING
+                        ? QueueFilterText.build(form.get("states"), form.get("category"), longOrNull(form.get("from")), longOrNull(form.get("to")))
+                        : form.get("entryId");
                 List<Long> ids = registry.enqueueCommand(application, instance.isBlank() ? "*" : instance, key(form),
-                        commandType(form.get("type")), form.get("entryId"), Math.max(0, integerOrZero(form.get("limit"))), actor, now);
+                        type, entryId, Math.max(0, integerOrZero(form.get("limit"))), actor, now);
                 Json json = new Json().beginObject().name("commandIds").beginArray();
                 for (long id : ids) {
                     json.value(id);
@@ -401,6 +406,8 @@ public final class AslAdminServer implements AutoCloseable {
             case "DELETE_ENTRY" -> Command.DELETE_ENTRY;
             case "BROWSE_QUEUE" -> Command.BROWSE_QUEUE;
             case "RESET_OBSERVATIONS" -> Command.RESET_OBSERVATIONS;
+            case "REPLAY_MATCHING" -> Command.REPLAY_MATCHING;
+            case "DELETE_MATCHING" -> Command.DELETE_MATCHING;
             default -> throw new IllegalArgumentException("Unknown command type " + type);
         };
     }
@@ -421,6 +428,17 @@ public final class AslAdminServer implements AutoCloseable {
         }
         try {
             return Integer.valueOf(value.trim());
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("Expected a number: " + value);
+        }
+    }
+
+    private static Long longOrNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value.trim());
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Expected a number: " + value);
         }

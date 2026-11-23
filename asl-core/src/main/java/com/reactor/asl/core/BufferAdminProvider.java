@@ -18,4 +18,14 @@ public interface BufferAdminProvider {
     int clear(String serviceId, String methodId);
 
     boolean delete(String serviceId, String methodId, String entryId);
+
+    /**
+     * Deletes up to {@code filter.max()} entries that match, never running ones, in one durable step.
+     *
+     * @return how many entries were deleted
+     * @throws UnsupportedOperationException when the provider has no bulk support
+     */
+    default int deleteMatching(String serviceId, String methodId, QueueEntryFilter filter) {
+        throw new UnsupportedOperationException("bulk delete is not supported by " + getClass().getSimpleName());
+    }
 }

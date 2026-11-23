@@ -229,6 +229,25 @@ class InstanceRegistryTest {
     }
 
     @Test
+    void bulkCommandsNeedAFilterAndABoundedCap() {
+        register("orders-a");
+        String filter = QueueFilterText.build("failed, retry_wait", "TIMEOUT", 10L, 20L);
+        assertEquals("states=FAILED,RETRY_WAIT;category=TIMEOUT;from=10;to=20", filter);
+        assertEquals("states=FAILED", QueueFilterText.build(null, " ", null, null));
+        assertThrows(IllegalArgumentException.class, () -> QueueFilterText.build("IN_PROGRESS", null, null, null));
+        assertThrows(IllegalArgumentException.class, () -> QueueFilterText.build(null, "a;b", null, null));
+        assertThrows(IllegalArgumentException.class, () -> QueueFilterText.build(null, null, 5L, 4L));
+
+        List<Long> ids = registry.enqueueCommand("orders", "*", CREATE, Command.DELETE_MATCHING, filter, 100, "alice", now);
+        assertEquals(1, ids.size());
+        assertTrue(store.recentAudit(1).get(0).detail().endsWith(filter + ";max=100"), store.recentAudit(1).get(0).detail());
+        assertThrows(IllegalArgumentException.class, () -> registry.enqueueCommand("orders", "*", CREATE, Command.REPLAY_MATCHING, null, 10, "a", now));
+        assertThrows(IllegalArgumentException.class, () -> registry.enqueueCommand("orders", "*", CREATE, Command.REPLAY_MATCHING, filter, 0, "a", now));
+        assertThrows(IllegalArgumentException.class, () -> registry.enqueueCommand("orders", "*", CREATE, Command.REPLAY_MATCHING, filter, 10_001, "a", now));
+        assertThrows(IllegalArgumentException.class, () -> registry.enqueueCommand("orders", "*", CREATE, 8, filter, 1, "a", now));
+    }
+
+    @Test
     void validatesOverrides() {
         register("orders-a");
         assertThrows(IllegalArgumentException.class, () -> registry.setOverride("nope", CREATE, null, MethodSetting.NONE, "a", now));
