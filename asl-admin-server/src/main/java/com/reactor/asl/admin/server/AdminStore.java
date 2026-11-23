@@ -39,6 +39,8 @@ public final class AdminStore implements AutoCloseable {
     private final long maxSizeBytes;
     private final DB db;
     private final HTreeMap<String, String> overrides;
+    /** Per application, one line per timed application-wide override: service, method, then {@link OverrideTimer#toText()}. */
+    private final HTreeMap<String, String> overrideTimers;
     private final Atomic.Long version;
     private final BTreeMap<Long, byte[]> audit;
     private final Atomic.Long auditSequence;
@@ -86,6 +88,7 @@ public final class AdminStore implements AutoCloseable {
             this.db = DBMaker.heapDB().make();
         }
         this.overrides = db.hashMap("overrides", Serializer.STRING, Serializer.STRING).createOrOpen();
+        this.overrideTimers = db.hashMap("overrideTimers", Serializer.STRING, Serializer.STRING).createOrOpen();
         this.version = db.atomicLong("version").createOrOpen();
         this.audit = db.treeMap("audit", Serializer.LONG, Serializer.BYTE_ARRAY).createOrOpen();
         this.auditSequence = db.atomicLong("auditSequence").createOrOpen();
@@ -137,6 +140,47 @@ public final class AdminStore implements AutoCloseable {
     }
 
     public synchronized void saveOverrides(String application, Map<MethodKey, MethodSetting> settings, long newVersion) {
+        writeOverrides(application, settings);
+        version.set(Math.max(version.get(), newVersion));
+        commit();
+    }
+
+    /** Overrides and their timers in one commit, so a restart never sees one without the other. */
+    public synchronized void saveOverrides(String application, Map<MethodKey, MethodSetting> settings,
+                                           Map<MethodKey, OverrideTimer> timers, long newVersion) {
+        writeOverrides(application, settings);
+        if (timers.isEmpty()) {
+            overrideTimers.remove(application);
+        } else {
+            List<String> lines = new ArrayList<>();
+            timers.forEach((key, timer) -> lines.add(plain(key.serviceId()) + "\t" + plain(key.methodId()) + "\t" + timer.toText()));
+            lines.sort(null);
+            overrideTimers.put(application, String.join("\n", lines));
+        }
+        version.set(Math.max(version.get(), newVersion));
+        commit();
+    }
+
+    public synchronized Map<String, Map<MethodKey, OverrideTimer>> loadOverrideTimers() {
+        Map<String, Map<MethodKey, OverrideTimer>> result = new HashMap<>();
+        for (Map.Entry<String, String> entry : overrideTimers.getEntries()) {
+            Map<MethodKey, OverrideTimer> timers = new LinkedHashMap<>();
+            for (String line : entry.getValue().split("\n")) {
+                if (line.isBlank()) {
+                    continue;
+                }
+                String[] parts = line.split("\t", 3);
+                if (parts.length != 3) {
+                    throw new IllegalStateException("Invalid override timer for " + entry.getKey() + ": " + line);
+                }
+                timers.put(new MethodKey(parts[0], parts[1]), OverrideTimer.parse(parts[2]));
+            }
+            result.put(entry.getKey(), timers);
+        }
+        return result;
+    }
+
+    private void writeOverrides(String application, Map<MethodKey, MethodSetting> settings) {
         if (settings.isEmpty()) {
             overrides.remove(application);
         } else {
@@ -145,8 +189,6 @@ public final class AdminStore implements AutoCloseable {
             lines.sort(null);
             overrides.put(application, String.join("\n", lines));
         }
-        version.set(Math.max(version.get(), newVersion));
-        commit();
     }
 
     // ---- audit ------------------------------------------------------------------------------

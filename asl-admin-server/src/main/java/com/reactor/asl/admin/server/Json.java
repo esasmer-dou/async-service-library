@@ -88,16 +88,29 @@ final class Json {
     }
 
     Json setting(String name, MethodSetting setting) {
-        name(name);
+        return name(name).settingValue(setting);
+    }
+
+    Json settingValue(MethodSetting setting) {
         if (setting == null) {
-            separator();
-            out.append("null");
-            needsComma = true;
-            return this;
+            return value((String) null);
         }
         return beginObject().field("enabled", setting.enabled()).field("async", setting.async())
                 .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads())
                 .field("rateLimit", setting.rateLimit()).endObject();
+    }
+
+    /** Relative time, so the browser's clock does not matter: {@code {"expiresInMillis":…,"revertsTo":setting|null}}. */
+    Json timer(String name, OverrideTimer timer, long now) {
+        return name(name).timerValue(timer, now);
+    }
+
+    Json timerValue(OverrideTimer timer, long now) {
+        if (timer == null) {
+            return value((String) null);
+        }
+        return beginObject().field("expiresInMillis", Math.max(0L, timer.expiresAtMillis() - now))
+                .setting("revertsTo", timer.previous()).endObject();
     }
 
     @Override

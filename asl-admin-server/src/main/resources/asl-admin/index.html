@@ -353,6 +353,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
     bolt: "M13 3 5 14h6l-1 7 8-11h-6z",
     layers: "m12 4 8 4-8 4-8-4zM4 12l8 4 8-4M4 16l8 4 8-4",
     tune: "M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4",
+    clock: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2",
     replay: "M20 12a8 8 0 1 1-2.3-5.7M20 4v4.5h-4.5",
     trash: "M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3",
     eye: "M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
@@ -382,6 +383,11 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       s.consumerThreads != null ? "consumers " + s.consumerThreads : null,
       s.rateLimit != null ? (s.rateLimit === 0 ? "no rate limit" : "rate " + s.rateLimit + "/s") : null].filter(Boolean).join(" · ");
   const rate = v => v ? v + "/s" : "—";
+  // Timed overrides: the server sends the time left, so the browser's clock does not matter.
+  const left = ms => ms < 60000 ? Math.max(1, Math.ceil(ms / 1000)) + "s" : ms < 3600000 ? Math.ceil(ms / 60000) + "m"
+      : (Math.round(ms / 360000) / 10) + "h";
+  const until = t => t ? ` · ${t.revertsTo ? "reverts" : "ends"} in ${left(t.expiresInMillis)}` : "";
+  const DURATIONS = [["", "Permanent"], ["900", "15 minutes"], ["3600", "1 hour"], ["14400", "4 hours"], ["86400", "24 hours"]];
 
   // ---- theme ----
   function applyTheme(mode) {
@@ -724,11 +730,12 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       const chevron = el("button", { class: "icon-btn sm" + (open ? " on" : ""), type: "button", "aria-label": open ? "Collapse" : "Expand", onclick: toggle }, icon("chevron"));
       if (open) chevron.firstChild.style.transform = "rotate(90deg)";
       const own = f.replica ? (insts[0] && insts[0].overrides[idx]) : null;
+      const ownTimer = f.replica && insts[0] && insts[0].timers ? insts[0].timers[idx] : null;
       rows.push(el("tr", { class: "row" + (open ? " open" : "") },
         el("td", { style: "width:52px" }, chevron),
         el("td", {}, el("span", { class: "strong" }, short(m.methodId)), el("span", { class: "sub" }, m.serviceId),
-          m.override ? label("All: " + describe(m.override), "info", "tune") : null,
-          own ? label("Replica: " + describe(own), "primary", "tune") : null,
+          m.override ? label("All: " + describe(m.override) + until(m.timer), m.timer ? "warning" : "info", m.timer ? "clock" : "tune") : null,
+          own ? label("Replica: " + describe(own) + until(ownTimer), ownTimer ? "warning" : "primary", ownTimer ? "clock" : "tune") : null,
           t.divergent ? label("Replicas differ", "warning", "alert") : null),
         el("td", { class: "nowrap" }, label(`${t.enabled}/${t.instances} on`, t.instances && t.enabled === t.instances ? "success" : t.enabled ? "warning" : "error"),
           m.asyncCapable ? label(t.async ? `${t.async} async` : "sync", t.async ? "primary" : "default") : label("sync only", "default")),
@@ -786,7 +793,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
   function detail(app, m, idx, insts) {
     const per = table("dense", ["Replica", "Enabled", "Mode", "#Max", "#Consumers", "#Rate limit", "#In flight", "#Errors", "#Queue pending / failed / running", "Replica override", ""],
       insts.filter(i => i.samples[idx]).map(i => {
-        const s = i.samples[idx], own = describe(i.overrides[idx]);
+        const s = i.samples[idx], ownTimer = i.timers ? i.timers[idx] : null, own = i.overrides[idx] ? describe(i.overrides[idx]) + until(ownTimer) : null;
         return el("tr", { class: "row" },
           el("td", { class: "mono" }, i.name),
           el("td", {}, s[STATE] & ENABLED ? label("On", "success") : label("Off", "error")),
@@ -794,7 +801,7 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
           el("td", { class: "num" }, s[MAX] >= 2147483647 ? "∞" : s[MAX]), el("td", { class: "num" }, s[CONSUMERS]),
           el("td", { class: "num" }, rate(s[RATE])), el("td", { class: "num" }, s[IN_FLIGHT]), el("td", { class: "num" + (s[ERROR] ? " err-text" : "") }, s[ERROR]),
           el("td", { class: "num" }, m.hasQueue ? `${s[Q_PENDING]} / ${s[Q_FAILED]} / ${s[Q_RUNNING]}` : "—"),
-          el("td", {}, own ? label(own, "info", "tune") : el("span", { class: "muted" }, "—")),
+          el("td", {}, own ? label(own, ownTimer ? "warning" : "info", ownTimer ? "clock" : "tune") : el("span", { class: "muted" }, "—")),
           el("td", { class: "act" }, el("div", { class: "btn-row" },
             el("button", { class: "icon-btn sm", type: "button", title: "Tune this replica", "aria-label": "Tune this replica", onclick: () => openEditor(app, m, idx, i.name) }, icon("tune")),
             m.hasQueue ? el("button", { class: "icon-btn sm", type: "button", title: "List queue entries", "aria-label": "List queue entries", onclick: () => openQueue(app, m, i.name) }, icon("eye")) : null,
@@ -807,7 +814,9 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
 
   // ---- settings editor (dialog) ----
   function openEditor(app, m, idx, instance) {
-    const current = instance ? (app.instances.find(i => i.name === instance) || { overrides: [] }).overrides[idx] : m.override;
+    const inst = instance ? (app.instances.find(i => i.name === instance) || { overrides: [], timers: [] }) : null;
+    const current = inst ? inst.overrides[idx] : m.override;
+    const timer = inst ? (inst.timers || [])[idx] : m.timer;
     const s = current || {};
     const select = (name, value, on, off) => el("select", { name, id: "f-" + name },
       el("option", { value: "" }, "Keep application value"),
@@ -819,7 +828,11 @@ button.link:hover { color: var(--primary); text-decoration: underline; }
       field("maxConcurrency", "Max concurrency", el("input", { name: "maxConcurrency", id: "f-maxConcurrency", type: "number", min: 1, value: s.maxConcurrency ?? "", placeholder: "keep" }), "Per replica"),
       m.asyncCapable ? field("consumerThreads", "Consumer threads", el("input", { name: "consumerThreads", id: "f-consumerThreads", type: "number", min: 0, value: s.consumerThreads ?? "", placeholder: "keep" }), "0 keeps work queued") : null,
       field("rateLimit", "Rate limit (calls/s)", el("input", { name: "rateLimit", id: "f-rateLimit", type: "number", min: 0, value: s.rateLimit ?? "", placeholder: "keep" }),
-        m.asyncCapable ? "Per replica. SYNC rejects above it, ASYNC consumers slow down. 0 removes a limit." : "Per replica. Calls above it are rejected. 0 removes a limit."));
+        m.asyncCapable ? "Per replica. SYNC rejects above it, ASYNC consumers slow down. 0 removes a limit." : "Per replica. Calls above it are rejected. 0 removes a limit."),
+      field("durationSeconds", "Keep for", el("select", { name: "durationSeconds", id: "f-durationSeconds" },
+        ...DURATIONS.map(([value, text]) => el("option", { value }, text))),
+        timer ? `Now timed: ${timer.revertsTo ? "returns to " + describe(timer.revertsTo) : "ends"} in ${left(timer.expiresInMillis)}. A new timed change keeps that; Permanent cancels it.`
+          : "A timed change returns to the current setting when the time is up."));
     let close = () => {};
     async function save() {
       const body = { serviceId: m.serviceId, methodId: m.methodId };

@@ -321,7 +321,9 @@ public final class AslAdminServer implements AutoCloseable {
                 MethodSetting setting = method.equals("DELETE") ? MethodSetting.NONE : new MethodSetting(
                         bool(form.get("enabled")), bool(form.get("async")), integer(form.get("maxConcurrency")), integer(form.get("consumerThreads")),
                         integer(form.get("rateLimit")));
-                registry.setOverride(application, key(form), form.get("instance"), setting, actor, now);
+                Integer durationSeconds = method.equals("DELETE") ? null : integer(form.get("durationSeconds"));
+                registry.setOverride(application, key(form), form.get("instance"), setting,
+                        durationSeconds == null ? null : durationSeconds * 1000L, actor, now);
                 sendEmpty(exchange, 204);
                 return;
             }

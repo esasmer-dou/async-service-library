@@ -167,6 +167,68 @@ class InstanceRegistryTest {
     }
 
     @Test
+    void timedOverrideRevertsToThePreviousOneAndSurvivesARestart() {
+        RegisterReply a = register("orders-a");
+        MethodSetting permanent = new MethodSetting(null, null, 20, null);
+        registry.setOverride("orders", CREATE, null, permanent, "alice", now);
+        registry.setOverride("orders", CREATE, null, new MethodSetting(false, null, null, null), 60_000L, "alice", now);
+        // A second timed change keeps the original "before" value and restarts the clock.
+        registry.setOverride("orders", CREATE, null, new MethodSetting(false, null, 5, null, 10), 120_000L, "bob", now + 10_000);
+        String json = detail();
+        assertTrue(json.contains("\"timer\":{\"expiresInMillis\":130000,\"revertsTo\":{\"enabled\":null,\"async\":null,\"maxConcurrency\":20"), json);
+
+        // Restart before it runs out: the timer comes back from the store.
+        InstanceRegistry restarted = new InstanceRegistry(config, store, now);
+        restarted.register(new Register("orders", "orders-a", "t", CATALOG), now);
+        restarted.maintain(now + 129_000);
+        assertEquals(new MethodSetting(false, null, 5, null, 10), store.loadOverrides().get("orders").get(CREATE), "not yet");
+        restarted.maintain(now + 130_000);
+        assertEquals(permanent, store.loadOverrides().get("orders").get(CREATE));
+        assertTrue(store.loadOverrideTimers().isEmpty());
+        AdminStore.AuditEntry last = store.recentAudit(1).get(0);
+        assertEquals("override.expired", last.action());
+        assertEquals("system", last.actor());
+        assertTrue(last.detail().endsWith("restored max=20"), last.detail());
+
+        // The original registry expires it too, and the replica is told with a new config version.
+        long before = registry.beat(beat(a.sessionId(), 1, 0, Beat.FULL), now).config().version();
+        registry.beat(beat(a.sessionId(), 2, before, 0), now + 129_000); // keeps the replica from being forgotten
+        registry.maintain(now + 130_000);
+        BeatReply after = registry.beat(beat(a.sessionId(), 3, before, 0), now + 130_000);
+        assertTrue(after.config().version() > before);
+        assertEquals(20, after.config().overrides().get(0).maxConcurrency());
+        assertNull(after.config().overrides().get(0).enabled());
+    }
+
+    @Test
+    void timedOverrideWithoutPreviousIsRemovedAndReplicaTimersGoWithTheReplica() {
+        register("orders-a");
+        registry.setOverride("orders", CREATE, null, new MethodSetting(null, true, null, 2), 30_000L, "alice", now);
+        registry.setOverride("orders", CREATE, "orders-a", new MethodSetting(false, null, null, null), 30_000L, "alice", now);
+        assertTrue(detail().contains("\"timers\":[{\"expiresInMillis\":30000,\"revertsTo\":null},null]"), detail());
+        registry.maintain(now + 30_000);
+        assertTrue(store.loadOverrides().isEmpty(), "back to the yml value");
+        assertTrue(detail().contains("\"overrides\":[null,null],\"timers\":[null,null]"), detail());
+
+        // A permanent override cancels the timer; a removal does as well.
+        registry.setOverride("orders", CREATE, null, new MethodSetting(null, null, 3, null), 30_000L, "a", now);
+        registry.setOverride("orders", CREATE, null, new MethodSetting(null, null, 4, null), "a", now);
+        registry.maintain(now + 40_000);
+        assertEquals(4, store.loadOverrides().get("orders").get(CREATE).maxConcurrency());
+
+        registry.setOverride("orders", CREATE, "orders-a", new MethodSetting(false, null, null, null), 30_000L, "a", now);
+        registry.maintain(now + 45_001); // the replica is silent and forgotten, with its timer
+        registry.register(new Register("orders", "orders-a", "t", CATALOG), now + 45_002);
+        assertTrue(detail().contains("\"timers\":[null,null]"), detail());
+
+        assertThrows(IllegalArgumentException.class, () -> registry.setOverride("orders", CREATE, null, MethodSetting.NONE, 30_000L, "a", now));
+        assertThrows(IllegalArgumentException.class, () -> registry.setOverride("orders", CREATE, null, new MethodSetting(true, null, null, null), 1_000L, "a", now));
+        assertThrows(IllegalArgumentException.class, () -> registry.setOverride("orders", CREATE, null, new MethodSetting(true, null, null, null), 8L * 86_400_000, "a", now));
+        assertEquals("15m", InstanceRegistry.duration(900_000));
+        assertEquals("2h", InstanceRegistry.duration(7_200_000));
+    }
+
+    @Test
     void validatesOverrides() {
         register("orders-a");
         assertThrows(IllegalArgumentException.class, () -> registry.setOverride("nope", CREATE, null, MethodSetting.NONE, "a", now));

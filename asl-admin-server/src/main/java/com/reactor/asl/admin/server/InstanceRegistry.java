@@ -72,6 +72,18 @@ public final class InstanceRegistry {
             app.version = Math.max(stored, 1);
             apps.put(app.name, app);
         }
+        // A timer that ran out while the server was down is applied by the first maintain() call.
+        for (Map.Entry<String, Map<MethodKey, OverrideTimer>> entry : store.loadOverrideTimers().entrySet()) {
+            AppState app = apps.get(entry.getKey());
+            if (app == null) {
+                continue; // overrides and timers are written in one commit; a timer without overrides is stale
+            }
+            entry.getValue().forEach((key, timer) -> {
+                if (app.overrides.containsKey(key)) {
+                    app.timers.put(key, timer);
+                }
+            });
+        }
     }
 
     // ---- protocol side ----------------------------------------------------------------------
@@ -191,6 +203,26 @@ public final class InstanceRegistry {
      * removes it, so the method returns to the application's own value.
      */
     public void setOverride(String application, MethodKey key, String instanceName, MethodSetting setting, String actor, long now) {
+        setOverride(application, key, instanceName, setting, null, actor, now);
+    }
+
+    /**
+     * @param durationMillis {@code null} for a permanent override. Otherwise the override is taken back after this
+     *                       long: the method returns to the override that was there before (or to its yml value).
+     *                       Replacing a timed override with another timed one keeps that original "before" value;
+     *                       a permanent override or a removal cancels the timer.
+     */
+    public void setOverride(String application, MethodKey key, String instanceName, MethodSetting setting, Long durationMillis,
+                            String actor, long now) {
+        if (durationMillis != null) {
+            if (setting.isEmpty()) {
+                throw new IllegalArgumentException("A timed override needs at least one value");
+            }
+            if (durationMillis < OverrideTimer.MIN_SECONDS * 1000 || durationMillis > OverrideTimer.MAX_SECONDS * 1000) {
+                throw new IllegalArgumentException("Duration must be between " + OverrideTimer.MIN_SECONDS + " seconds and "
+                        + OverrideTimer.MAX_SECONDS / 86_400 + " days");
+            }
+        }
         AppState app = requireApp(application);
         boolean appWide = instanceName == null || instanceName.isBlank();
         synchronized (app) {
@@ -201,36 +233,118 @@ public final class InstanceRegistry {
             if (Boolean.TRUE.equals(setting.async()) && !method.asyncCapable()) {
                 throw new IllegalArgumentException("Method is not async-capable");
             }
-            if (appWide) {
-                if (setting.isEmpty()) {
-                    app.overrides.remove(key);
-                } else {
-                    app.overrides.put(key, setting);
-                }
+            if (!appWide && !app.instances.containsKey(instanceName)) {
+                throw new IllegalArgumentException("Unknown instance " + instanceName);
+            }
+            Map<MethodKey, MethodSetting> settings = appWide ? app.overrides
+                    : app.instanceOverrides.computeIfAbsent(instanceName, name -> new HashMap<>());
+            Map<MethodKey, OverrideTimer> timers = appWide ? app.timers
+                    : app.instanceTimers.computeIfAbsent(instanceName, name -> new HashMap<>());
+            OverrideTimer running = timers.get(key);
+            if (durationMillis == null) {
+                timers.remove(key);
             } else {
-                if (!app.instances.containsKey(instanceName)) {
-                    throw new IllegalArgumentException("Unknown instance " + instanceName);
-                }
-                Map<MethodKey, MethodSetting> perInstance = app.instanceOverrides.computeIfAbsent(instanceName, name -> new HashMap<>());
-                if (setting.isEmpty()) {
-                    perInstance.remove(key);
-                    if (perInstance.isEmpty()) {
-                        app.instanceOverrides.remove(instanceName);
-                    }
-                } else {
-                    perInstance.put(key, setting);
-                }
+                MethodSetting before = running != null ? running.previous() : settings.get(key);
+                timers.put(key, new OverrideTimer(now + durationMillis, before));
+            }
+            if (setting.isEmpty()) {
+                settings.remove(key);
+            } else {
+                settings.put(key, setting);
+            }
+            if (!appWide) {
+                pruneInstanceMaps(app, instanceName);
             }
             app.version = version.incrementAndGet();
             if (appWide) {
-                store.saveOverrides(app.name, Map.copyOf(app.overrides), app.version);
+                store.saveOverrides(app.name, Map.copyOf(app.overrides), Map.copyOf(app.timers), app.version);
             }
         }
         if (config.auditEnabled) {
             store.appendAudit(new AdminStore.AuditEntry(now, actor, application, setting.isEmpty() ? "override.clear" : "override.set",
                     key.serviceId() + "#" + key.methodId() + (appWide ? "" : " @" + instanceName)
-                            + (setting.isEmpty() ? "" : " " + setting.toText())));
+                            + (setting.isEmpty() ? "" : " " + setting.toText())
+                            + (durationMillis == null ? "" : " for " + duration(durationMillis))));
         }
+    }
+
+    private static void pruneInstanceMaps(AppState app, String instanceName) {
+        Map<MethodKey, MethodSetting> settings = app.instanceOverrides.get(instanceName);
+        if (settings != null && settings.isEmpty()) {
+            app.instanceOverrides.remove(instanceName);
+        }
+        Map<MethodKey, OverrideTimer> timers = app.instanceTimers.get(instanceName);
+        if (timers != null && timers.isEmpty()) {
+            app.instanceTimers.remove(instanceName);
+        }
+    }
+
+    static String duration(long millis) {
+        long seconds = millis / 1000;
+        if (seconds % 86_400 == 0) {
+            return seconds / 86_400 + "d";
+        }
+        if (seconds % 3600 == 0) {
+            return seconds / 3600 + "h";
+        }
+        if (seconds % 60 == 0) {
+            return seconds / 60 + "m";
+        }
+        return seconds + "s";
+    }
+
+    /** Takes back timed overrides whose time is up. Returns how many were taken back. */
+    private int expireTimers(AppState app, long now) {
+        int expired = 0;
+        List<String> details = new ArrayList<>();
+        boolean appWideChanged = false;
+        for (Iterator<Map.Entry<MethodKey, OverrideTimer>> it = app.timers.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<MethodKey, OverrideTimer> entry = it.next();
+            if (entry.getValue().expiresAtMillis() > now) {
+                continue;
+            }
+            it.remove();
+            details.add(restore(app.overrides, entry.getKey(), entry.getValue().previous(), null));
+            appWideChanged = true;
+            expired++;
+        }
+        for (String instanceName : List.copyOf(app.instanceTimers.keySet())) {
+            Map<MethodKey, OverrideTimer> timers = app.instanceTimers.get(instanceName);
+            Map<MethodKey, MethodSetting> settings = app.instanceOverrides.computeIfAbsent(instanceName, name -> new HashMap<>());
+            for (Iterator<Map.Entry<MethodKey, OverrideTimer>> it = timers.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<MethodKey, OverrideTimer> entry = it.next();
+                if (entry.getValue().expiresAtMillis() > now) {
+                    continue;
+                }
+                it.remove();
+                details.add(restore(settings, entry.getKey(), entry.getValue().previous(), instanceName));
+                expired++;
+            }
+            pruneInstanceMaps(app, instanceName);
+        }
+        if (expired == 0) {
+            return 0;
+        }
+        app.version = version.incrementAndGet();
+        if (appWideChanged) {
+            store.saveOverrides(app.name, Map.copyOf(app.overrides), Map.copyOf(app.timers), app.version);
+        }
+        if (config.auditEnabled) {
+            for (String detail : details) {
+                store.appendAudit(new AdminStore.AuditEntry(now, "system", app.name, "override.expired", detail));
+            }
+        }
+        return expired;
+    }
+
+    private static String restore(Map<MethodKey, MethodSetting> settings, MethodKey key, MethodSetting previous, String instanceName) {
+        if (previous == null || previous.isEmpty()) {
+            settings.remove(key);
+        } else {
+            settings.put(key, previous);
+        }
+        return key.serviceId() + "#" + key.methodId() + (instanceName == null ? "" : " @" + instanceName)
+                + (previous == null || previous.isEmpty() ? " removed" : " restored " + previous.toText());
     }
 
     /** Queues a command for one replica, or every replica that has the method when {@code instanceName} is "*". */
@@ -287,10 +401,11 @@ public final class InstanceRegistry {
         }
     }
 
-    /** Forgets silent replicas and expires unanswered commands. */
+    /** Takes back timed overrides, forgets silent replicas and expires unanswered commands. */
     public void maintain(long now) {
         for (AppState app : apps.values()) {
             synchronized (app) {
+                expireTimers(app, now);
                 for (InstanceState instance : List.copyOf(app.instances.values())) {
                     if (now - instance.lastSeen > expireAfterMillis) {
                         drop(app, instance, now, "instance expired", false);
@@ -348,7 +463,7 @@ public final class InstanceRegistry {
                 MethodInfo info = known.get(key);
                 json.beginObject().field("serviceId", key.serviceId()).field("methodId", key.methodId())
                         .field("asyncCapable", info.asyncCapable()).field("hasQueue", info.hasQueue())
-                        .setting("override", app.overrides.get(key)).endObject();
+                        .setting("override", app.overrides.get(key)).timer("timer", app.timers.get(key), now).endObject();
             }
             json.endArray();
             List<InstanceState> instances = new ArrayList<>(app.instances.values());
@@ -377,14 +492,13 @@ public final class InstanceRegistry {
                 json.endArray();
                 json.name("overrides").beginArray();
                 for (MethodKey key : order) {
-                    MethodSetting setting = own.get(key);
-                    if (setting == null) {
-                        json.value((String) null);
-                    } else {
-                        json.beginObject().field("enabled", setting.enabled()).field("async", setting.async())
-                                .field("maxConcurrency", setting.maxConcurrency()).field("consumerThreads", setting.consumerThreads())
-                                .field("rateLimit", setting.rateLimit()).endObject();
-                    }
+                    json.settingValue(own.get(key));
+                }
+                json.endArray();
+                Map<MethodKey, OverrideTimer> ownTimers = app.instanceTimers.getOrDefault(instance.name, Map.of());
+                json.name("timers").beginArray();
+                for (MethodKey key : order) {
+                    json.timerValue(ownTimers.get(key), now);
                 }
                 json.endArray().endObject();
             }
@@ -492,6 +606,7 @@ public final class InstanceRegistry {
         instance.pending.clear();
         if (!keepInstanceOverrides) {
             app.instanceOverrides.remove(instance.name);
+            app.instanceTimers.remove(instance.name);
         }
     }
 
@@ -526,6 +641,10 @@ public final class InstanceRegistry {
         final Map<String, InstanceState> instances = new LinkedHashMap<>();
         final Map<MethodKey, MethodSetting> overrides = new HashMap<>();
         final Map<String, Map<MethodKey, MethodSetting>> instanceOverrides = new HashMap<>();
+        /** Timed application-wide overrides (persisted with the overrides). */
+        final Map<MethodKey, OverrideTimer> timers = new HashMap<>();
+        /** Timed replica overrides (memory only, like the overrides themselves). */
+        final Map<String, Map<MethodKey, OverrideTimer>> instanceTimers = new HashMap<>();
         final Map<MethodKey, MethodInfo> known = new HashMap<>();
         final ArrayDeque<CommandResult> results = new ArrayDeque<>();
         long version;
