@@ -2,7 +2,7 @@
 
 Bu rehber, sample uygulama üzerinde denenebilecek temel kaos ve toparlanma senaryolarını açıklar. Amaç, async queue davranışının normal çalışma, hata, replay, restart ve zorla kill durumlarında nasıl tepki verdiğini görmektir.
 
-Çalışma zamanı değişiklikleri, operatörün kullandığı yoldan, merkezi admin server üzerinden yapılır. Kopyalanabilir PowerShell yardımcıları ve adım adım komutlar İngilizce rehberdedir: [CHAOS_TEST_GUIDE.md](../../asl-consumer-sample/CHAOS_TEST_GUIDE.md). Sample'ı admin server'a bağlı başlatmak için [README](README.md#merkezi-admin-serverdan-yönetim) adımlarını izle.
+Çalışma zamanı değişiklikleri, operatörün kullandığı yoldan, merkezi admin server üzerinden yapılır. Kopyalanabilir PowerShell yardımcıları ve adım adım komutlar İngilizce rehberdedir: [CHAOS_TEST_GUIDE.md](../../asl-consumer-sample/CHAOS_TEST_GUIDE.md). Sample'ı admin server'a bağlı başlatmak için [README](README.md#admin-portalıyla-çalıştırma) adımlarını izle.
 
 Otomatik destructive suite (PowerShell 7):
 

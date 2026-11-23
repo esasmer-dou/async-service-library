@@ -23,7 +23,7 @@ pwsh -File .\scripts\run-mapdb-abuse-suite.ps1
 
 ## Start
 
-Start the admin server and the sample connected to it, as in the [sample README](README.md#manage-it-from-the-central-admin-server):
+Start the admin server and the sample connected to it, as in the [sample README](README.md#run-with-the-admin-portal):
 
 - application API: `http://localhost:8080`
 - admin portal: `http://localhost:8090/asl-admin/`

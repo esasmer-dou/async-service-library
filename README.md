@@ -1,111 +1,87 @@
-# Async Service Library
+# Async Service Library (ASL)
 
 **Language:** English | [Türkçe](tr/README.md)
 
-Async Service Library (ASL) is an in-process governance layer for Java 21 and Spring Boot service methods. It generates wrappers at compile time and lets operators stop, throttle, queue, retry, and observe selected methods without reflection-based dispatch or a separate workflow platform.
+ASL lets you control selected Spring service methods at runtime, without redeploying. For each method you can:
 
-ASL is designed around explicit limits. Async admission, payload size, writer backlog, worker execution, retry state, idempotency retention, and admin access are bounded or fail-closed by default.
+- **stop or start** it,
+- **limit** how many calls run at once or how many start per second,
+- **switch** it between running immediately (SYNC) and running from a durable queue (ASYNC),
+- **replay or delete** failed queued calls.
 
-## What It Provides
+All of this is done from one central admin portal for every application and replica.
 
-- Compile-time generated service wrappers.
-- Runtime start/stop and max-concurrency control.
-- Persistent async execution for explicitly marked `void` methods.
-- Bounded MapDB queue with FIFO indexes, leases, retries, idempotency, and durable acknowledgements.
-- Micrometer metrics with a configurable cardinality cap.
-- Optional central admin server: one lightweight portal for every application and replica; pods expose no admin endpoint.
-- JMH, API compatibility, SBOM, JVM/OS matrix, and destructive recovery gates.
+ASL runs inside your application. It generates the wrappers at compile time (no reflection), and every queue and limit is bounded by default.
 
-## Choose Only the Modules You Need
+## Requirements
 
-| Requirement | Artifact | Pulls MapDB | Pulls Web/Thymeleaf |
-|---|---|---:|---:|
-| Synchronous governance only | `asl-spring-boot-core-starter` | No | No |
-| Persistent async lanes | `asl-spring-boot-mapdb-starter` | Yes | No |
-| Connect the application to the central admin server | `asl-spring-boot-admin-client-starter` | No | No |
-| Central portal for every application and replica (separate jar, no web framework) | `asl-admin-server` | Yes (telemetry history) | No |
-| All-in-one setup (core + MapDB + admin client) | `asl-spring-boot-starter` | Yes | No |
+| | Version |
+|---|---|
+| Java | 21 or newer |
+| Spring Boot | 3.3.x |
+| Maven | 3.9.x |
 
-The annotation processor remains a compile-time dependency. Applications that only need synchronous governance do not pay for MapDB. No ASL artifact adds Spring MVC or Thymeleaf to the application; the admin client is off until `asl.admin.client.enabled=true`.
+## Modules
 
-The in-application admin portal (`asl-spring-boot-admin-starter`, `/asl` and `/asl/api`) was removed. Use the central admin server instead; startup overrides moved to `asl.runtime.services.*`.
+Add only what you need.
 
-## Minimal Integration
+| You want | Add | Brings MapDB |
+|---|---|:---:|
+| Stop/limit methods, metrics | `asl-spring-boot-core-starter` | no |
+| Durable ASYNC queue | `asl-spring-boot-mapdb-starter` (includes core) | yes |
+| Manage the application from the admin portal | `asl-spring-boot-admin-client-starter` | no |
+| All of the above | `asl-spring-boot-starter` | yes |
+| The admin portal itself (separate process) | `asl-admin-server` | yes |
 
-```xml
-<properties>
-    <asl.version>YOUR_RELEASE</asl.version>
-</properties>
+Every application also needs `asl-annotations` and the compile-time processor `asl-processor`. No module adds a web framework to your application.
 
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-spring-boot-core-starter</artifactId>
-    <version>${asl.version}</version>
-</dependency>
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-annotations</artifactId>
-    <version>${asl.version}</version>
-</dependency>
-```
-
-Configure `asl-processor` under `maven-compiler-plugin.annotationProcessorPaths`, then define the governed contract:
+## In five minutes
 
 ```java
 @GovernedService(id = "mail.service")
 public interface MailService {
-    @GovernedMethod(initialMaxConcurrency = 4)
-    String send(String payload);
 
-    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 2)
-    void publish(@AsyncIdempotencyKey String eventId, String payload);
+    @GovernedMethod(initialMaxConcurrency = 4)          // at most 4 calls at once
+    String send(String mailId);
+
+    @GovernedMethod(asyncCapable = true)                // may be switched to the durable queue
+    void publishAudit(@AsyncIdempotencyKey String eventId, String mailId);
 }
 ```
 
-Async switching is available for methods explicitly marked `asyncCapable=true` that return `void` or `CompletableFuture<T>`. In ASYNC mode a `CompletableFuture` method still hands its caller a future, which completes when the queued run is done (see USAGE_GUIDE section 6). Other result-returning methods stay synchronous because queueing would break their return contract.
+Implement the interface as a normal `@Service`, inject `MailService` (not the implementation) and call it. The generated wrapper applies the controls. You can change them later in `application.yml` or in the portal.
 
-## Production Defaults
-
-- The admin client is disabled by default. When enabled it requires a shared HMAC secret of at least 16 bytes, and it opens no port on the pod.
-- The admin server portal requires a login by default (`BASIC`); it does not terminate TLS and belongs behind a TLS ingress.
-- MapDB is disabled by default and corruption policy is `FAIL_FAST`.
-- Queue and payload limits reject excess work by default instead of growing without bound.
-- MapDB transactions are enabled; disabling them weakens rollback and crash-durability guarantees and logs a warning.
-- Payload summaries and synchronous/async errors are redacted to type-only output by default and retained under explicit length caps.
-- Custom Jackson/Java payload types must be allowlisted or registered with an explicit schema.
-- Retry count defaults to one total attempt. Increasing retries requires idempotent business behavior.
-
-## Deployment Boundary
-
-The MapDB engine is process-local. Use one application replica with a local/PVC-backed queue, or give every replica an independent queue. Never mount the same MapDB file into multiple pods. The single-owner `.asl.lock` uses an OS file lock, which network filesystems (NFS, SMB, ReadWriteMany volumes such as EFS or Azure Files) may not enforce reliably; use a ReadWriteOnce volume per replica. ASL does not provide cluster-wide delivery and ships no broker adapter; work that must be shared across replicas belongs on a message broker.
-
-With several replicas, manage them from one place with the central admin server: each replica runs `asl-spring-boot-admin-client-starter` (no UI and no inbound endpoint on the pod) and opens the only connection itself. See [Central admin server](USAGE_GUIDE.md#central-admin-server-for-multiple-replicas).
-
-Async delivery is at-least-once. An execution interrupted by graceful shutdown, a crash or an expired lease returns to the queue without consuming a retry attempt (bounded by `retry.max-interruptions`). A process can fail after the business side effect but before durable completion, so consumers must be idempotent. `@AsyncIdempotencyKey` prevents duplicate queue admissions; it cannot make an external side effect transactional.
+Step by step: [Getting started](docs/getting-started.md).
 
 ## Documentation
 
-- Usage guide: [English](USAGE_GUIDE.md) | [Türkçe](tr/USAGE_GUIDE.md)
-- Complete configuration reference: [English](CONFIGURATION_REFERENCE.md) | [Türkçe](tr/CONFIGURATION_REFERENCE.md)
-- Runnable sample: [English](asl-consumer-sample/README.md) | [Türkçe](tr/asl-consumer-sample/README.md)
-- Recovery and abuse tests: [English](asl-consumer-sample/CHAOS_TEST_GUIDE.md) | [Türkçe](tr/asl-consumer-sample/CHAOS_TEST_GUIDE.md)
-- Benchmark reports: [English](reports/README.md) | [Türkçe](tr/reports/README.md)
+| Page | Read it to |
+|---|---|
+| [Getting started](docs/getting-started.md) | add ASL to a service and run the first governed method |
+| [Concepts](docs/concepts.md) | understand every control: enabled, max concurrency, SYNC/ASYNC, consumers, rate limit, retries, queue states |
+| [Scenarios](docs/scenarios.md) | find the right setting for a real situation: slow dependency, partner quota, traffic spike, outage, replay after a fix |
+| [Admin server and portal](docs/admin-server.md) | run the central portal and use it |
+| [Configuration reference](docs/configuration.md) | look up every property, its default and its effect |
+| [Operations](docs/operations.md) | go to production: defaults, limits, metrics, health, recovery, Kubernetes |
+| [Troubleshooting](docs/troubleshooting.md) | match a symptom to its cause |
+| [Sample application](asl-consumer-sample/README.md) | try everything locally |
 
-## Verification
+## Important limits
+
+- **One queue per process.** The ASYNC queue is a local MapDB file. Every replica has its own queue, and a queue file is never shared between pods. Work that must be shared across replicas belongs on a message broker.
+- **At-least-once.** A queued call can run again after a crash. Make queued methods idempotent.
+- **Limits are per replica.** `max-concurrency: 20` on three replicas allows 60 calls in total.
+
+## Build and verify
 
 ```powershell
 mvn -B -ntp clean verify
-.\scripts\run-api-compatibility-gate.ps1
-.\scripts\run-data-plane-performance-gate.ps1 -Threads 1,8,32,128
-mvn -B -ntp -Psbom -DskipTests package
 ```
 
-The release workflow publishes source/Javadoc artifacts and CycloneDX JSON/XML SBOMs. CI checks Temurin and Semeru/OpenJ9 on Windows and Linux.
+Release gates (API compatibility, performance, SBOM) are described in [Operations](docs/operations.md#release-gates).
 
 ## Distribution
 
 - [GitHub repository](https://github.com/esasmer-dou/async-service-library)
-- [GitHub Packages](https://maven.pkg.github.com/esasmer-dou/async-service-library)
+- [GitHub Packages](https://maven.pkg.github.com/esasmer-dou/async-service-library) (setup: [Getting started](docs/getting-started.md#1-add-the-repository))
 - [Releases](https://github.com/esasmer-dou/async-service-library/releases)
-
-GitHub Packages authentication and complete Maven setup are documented in the [usage guide](USAGE_GUIDE.md).

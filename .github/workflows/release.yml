@@ -71,7 +71,7 @@ jobs:
           
           Current boundary:
           
-          - runtime \`SYNC -> ASYNC\` switching is supported for \`void\` methods only
+          - runtime \`SYNC -> ASYNC\` switching is supported for \`void\` and \`CompletableFuture<T>\` methods marked \`asyncCapable\`
           - MapDB is a single-process local queue; sharing one store between replicas is unsupported
           - delivery is at-least-once, so external business side effects must remain idempotent
           - the admin server does not terminate TLS; run its portal behind a TLS ingress
@@ -79,8 +79,9 @@ jobs:
           Start here:
           
           - README: https://github.com/esasmer-dou/async-service-library
-          - usage guide: https://github.com/esasmer-dou/async-service-library/blob/main/USAGE_GUIDE.md
-          - configuration reference: https://github.com/esasmer-dou/async-service-library/blob/main/CONFIGURATION_REFERENCE.md
+          - getting started: https://github.com/esasmer-dou/async-service-library/blob/main/docs/getting-started.md
+          - concepts and scenarios: https://github.com/esasmer-dou/async-service-library/blob/main/docs/concepts.md
+          - configuration reference: https://github.com/esasmer-dou/async-service-library/blob/main/docs/configuration.md
           - sample app: https://github.com/esasmer-dou/async-service-library/tree/main/asl-consumer-sample
           EOF
 

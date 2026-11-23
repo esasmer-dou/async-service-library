@@ -1,111 +1,87 @@
-# Async Service Library
+# Async Service Library (ASL)
 
 **Dil:** [English](../README.md) | Türkçe
 
-Async Service Library (ASL), Java 21 ve Spring Boot uygulamalarındaki servis metotları için süreç içi bir yönetim katmanıdır. Servis sarmalayıcılarını derleme sırasında üretir; seçilen metotların reflection tabanlı çağrı yönlendirmesi veya ayrı bir iş akışı ürünü olmadan durdurulmasını, sınırlandırılmasını, kuyruğa alınmasını, yeniden denenmesini ve izlenmesini sağlar.
+ASL, seçtiğiniz Spring servis metotlarını yeniden deploy etmeden, çalışma anında yönetmenizi sağlar. Her metot için şunları yapabilirsiniz:
 
-Tasarımın temel ilkesi sınırsız kaynak kullanmamaktır. Async kabulü, payload boyutu, writer kuyruğu, worker havuzu, retry kayıtları, idempotency saklama süresi ve admin erişimi açık sınırlar veya güvenli varsayılanlarla yönetilir.
+- metodu **durdurup başlatmak**,
+- aynı anda kaç çağrının çalışacağını veya saniyede kaç çağrının başlayacağını **sınırlamak**,
+- metodu hemen çalıştırma (SYNC) ile kalıcı kuyruktan çalıştırma (ASYNC) arasında **geçirmek**,
+- kuyrukta başarısız olan çağrıları **yeniden çalıştırmak veya silmek**.
 
-## Sağladığı Yetenekler
+Bunların hepsini, tüm uygulamalar ve replica'lar için tek bir merkezi admin portalından yaparsınız.
 
-- Derleme sırasında üretilen servis sarmalayıcıları.
-- Metot bazında başlatma, durdurma ve eşzamanlılık sınırı.
-- Yalnızca açıkça işaretlenmiş `void` metotlar için kalıcı async çalışma.
-- FIFO indeksleri, lease, retry, idempotency ve kalıcı onay içeren sınırlı MapDB kuyruğu.
-- Cardinality sınırı ayarlanabilen Micrometer metrikleri.
-- İsteğe bağlı merkezi admin server: tüm uygulama ve replica'lar için tek, hafif portal; pod'larda yönetim ucu yoktur.
-- JMH, API uyumluluğu, SBOM, JVM/işletim sistemi matrisi ve yıpratıcı recovery testleri.
+ASL uygulamanızın içinde çalışır. Wrapper'ları derleme anında üretir (reflection yok); her kuyruk ve her limit varsayılan olarak sınırlıdır.
 
-## Yalnızca İhtiyacın Olan Modülü Seç
+## Gereksinimler
 
-| İhtiyaç | Artifact | MapDB getirir mi? | Web/Thymeleaf getirir mi? |
-|---|---|---:|---:|
-| Yalnız senkron metot yönetimi | `asl-spring-boot-core-starter` | Hayır | Hayır |
-| Kalıcı async kuyruk | `asl-spring-boot-mapdb-starter` | Evet | Hayır |
-| Uygulamayı merkezi admin server'a bağlama | `asl-spring-boot-admin-client-starter` | Hayır | Hayır |
-| Tüm uygulama ve replica'lar için merkezi portal (ayrı jar, web framework'süz) | `asl-admin-server` | Evet (telemetri geçmişi) | Hayır |
-| Hepsi bir arada kurulum (core + MapDB + admin client) | `asl-spring-boot-starter` | Evet | Hayır |
+| | Sürüm |
+|---|---|
+| Java | 21 veya üstü |
+| Spring Boot | 3.3.x |
+| Maven | 3.9.x |
 
-Annotation processor yalnızca derleme sırasında kullanılır. Sadece senkron yönetim isteyen bir uygulama MapDB taşımaz. Hiçbir ASL artifact'i uygulamaya Spring MVC veya Thymeleaf eklemez; admin client `asl.admin.client.enabled=true` yapılana kadar kapalıdır.
+## Modüller
 
-Uygulama içi admin portalı (`asl-spring-boot-admin-starter`, `/asl` ve `/asl/api`) kaldırıldı. Yerine merkezi admin server kullanılır; başlangıç override'ları `asl.runtime.services.*` altına taşındı.
+Yalnızca ihtiyacınız olanı ekleyin.
 
-## En Küçük Kurulum
+| İhtiyaç | Eklenecek | MapDB getirir |
+|---|---|:---:|
+| Metotları durdurma/sınırlama, metrik | `asl-spring-boot-core-starter` | hayır |
+| Kalıcı ASYNC kuyruk | `asl-spring-boot-mapdb-starter` (core'u içerir) | evet |
+| Uygulamayı admin portalından yönetme | `asl-spring-boot-admin-client-starter` | hayır |
+| Hepsi | `asl-spring-boot-starter` | evet |
+| Admin portalın kendisi (ayrı process) | `asl-admin-server` | evet |
 
-```xml
-<properties>
-    <asl.version>YAYINLANAN_SURUM</asl.version>
-</properties>
+Her uygulamada ayrıca `asl-annotations` ve derleme anı processor'ü `asl-processor` gerekir. Hiçbir modül uygulamanıza web framework eklemez.
 
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-spring-boot-core-starter</artifactId>
-    <version>${asl.version}</version>
-</dependency>
-<dependency>
-    <groupId>com.reactor.asl</groupId>
-    <artifactId>asl-annotations</artifactId>
-    <version>${asl.version}</version>
-</dependency>
-```
-
-`asl-processor` artifact’ını `maven-compiler-plugin.annotationProcessorPaths` altında tanımladıktan sonra servis sözleşmesini işaretle:
+## Beş dakikada
 
 ```java
 @GovernedService(id = "mail.service")
 public interface MailService {
-    @GovernedMethod(initialMaxConcurrency = 4)
-    String send(String payload);
 
-    @GovernedMethod(asyncCapable = true, initialConsumerThreads = 2)
-    void publish(@AsyncIdempotencyKey String eventId, String payload);
+    @GovernedMethod(initialMaxConcurrency = 4)          // aynı anda en fazla 4 çağrı
+    String send(String mailId);
+
+    @GovernedMethod(asyncCapable = true)                // kalıcı kuyruğa alınabilir
+    void publishAudit(@AsyncIdempotencyKey String eventId, String mailId);
 }
 ```
 
-Runtime sırasında async moda `asyncCapable=true` olarak tanımlanmış ve `void` ya da `CompletableFuture<T>` döndüren metotlar geçirilebilir. ASYNC modda `CompletableFuture` metodu çağırana yine bir future verir; bu future kuyruktaki çalıştırma bitince tamamlanır (USAGE_GUIDE bölüm 6). Diğer yanıt döndüren metotlar senkron kalır; bunları kuyruğa almak çağrının dönüş sözleşmesini bozar.
+Interface'i normal bir `@Service` ile implement edin; `MailService`'i (implementation'ı değil) inject edip çağırın. Kontrolleri üretilen wrapper uygular. Ayarları daha sonra `application.yml`'de veya portalda değiştirebilirsiniz.
 
-## Production Varsayılanları
+Adım adım: [Başlarken](docs/getting-started.md).
 
-- Admin client başlangıçta kapalıdır. Açıldığında en az 16 baytlık ortak bir HMAC anahtarı ister ve pod'da port açmaz.
-- Admin server portalı varsayılan olarak giriş ister (`BASIC`); TLS sonlandırmaz, TLS'li bir ingress arkasında çalışmalıdır.
-- MapDB başlangıçta kapalıdır; bozulma politikası `FAIL_FAST` değerindedir.
-- Kuyruk ve payload sınırı aşıldığında varsayılan davranış belleği büyütmek değil, işi reddetmektir.
-- MapDB transaction desteği açıktır. Kapatılması rollback ve çökme dayanıklılığını zayıflatır ve log’a uyarı yazar.
-- Payload özeti ile senkron/async hata ayrıntısı varsayılan olarak yalnızca tip bilgisini gösterir ve kesin uzunluk sınırları içinde tutulur.
-- Özel Jackson/Java tipleri allowlist’e eklenmeli veya açık bir şema ile kaydedilmelidir.
-- Varsayılan retry değeri toplam bir denemedir. Retry sayısı artırılıyorsa iş mantığı idempotent olmalıdır.
+## Dokümantasyon
 
-## Dağıtım Sınırı
+| Sayfa | Ne için |
+|---|---|
+| [Başlarken](docs/getting-started.md) | ASL'yi bir servise ekleyip ilk yönetilen metodu çalıştırmak |
+| [Kavramlar](docs/concepts.md) | her kontrolü anlamak: enabled, max concurrency, SYNC/ASYNC, consumer'lar, rate limit, retry, kuyruk durumları |
+| [Senaryolar](docs/scenarios.md) | gerçek bir durum için doğru ayarı bulmak: yavaş bağımlılık, partner kotası, trafik artışı, kesinti, düzeltme sonrası replay |
+| [Admin server ve portal](docs/admin-server.md) | merkezi portalı çalıştırmak ve kullanmak |
+| [Yapılandırma referansı](docs/configuration.md) | her property'yi, varsayılanını ve etkisini bulmak |
+| [Operasyon](docs/operations.md) | production'a çıkmak: varsayılanlar, limitler, metrikler, health, kurtarma, Kubernetes |
+| [Sorun giderme](docs/troubleshooting.md) | bir belirtiyi nedeniyle eşleştirmek |
+| [Örnek uygulama](asl-consumer-sample/README.md) | her şeyi lokalde denemek |
 
-MapDB motoru tek JVM’e aittir. Uygulama tek replica ve local/PVC tabanlı kuyrukla çalıştırılabilir ya da her replica kendi bağımsız kuyruğunu kullanabilir. Aynı MapDB dosyası birden fazla pod tarafından kesinlikle paylaşılmamalıdır. Tek sahiplik `.asl.lock` dosyası işletim sistemi file lock'u kullanır; ağ dosya sistemleri (NFS, SMB, EFS veya Azure Files gibi ReadWriteMany volume'lar) bu kilidi güvenilir biçimde uygulamayabilir. Her replica için ReadWriteOnce volume kullan. ASL küme genelinde teslimat sağlamaz ve broker adapter'ı içermez; replica'lar arasında paylaşılması gereken iş bir mesaj kuyruğu sistemine aittir.
+## Önemli sınırlar
 
-Birden fazla replica'yı tek noktadan yönetmek için merkezi admin server kullanılır: her replica `asl-spring-boot-admin-client-starter` ile çalışır (pod'da arayüz ve dışarıdan erişilen endpoint yoktur) ve tek bağlantıyı kendisi açar. Ayrıntı: [Merkezi admin server](USAGE_GUIDE.md#merkezi-admin-server-ve-birden-fazla-replica).
+- **Process başına bir kuyruk.** ASYNC kuyruk lokal bir MapDB dosyasıdır. Her replica'nın kendi kuyruğu vardır; bir kuyruk dosyası pod'lar arasında asla paylaşılmaz. Replica'lar arasında paylaşılması gereken iş bir message broker'a aittir.
+- **At-least-once.** Kuyruktaki bir çağrı, bir çökme sonrasında yeniden çalışabilir. Kuyruğa alınan metotları idempotent yapın.
+- **Limitler replica başınadır.** Üç replica'da `max-concurrency: 20` toplamda 60 çağrıya izin verir.
 
-Async teslimat at-least-once biçimindedir. Graceful shutdown, crash veya süresi dolan lease ile kesilen bir çalıştırma retry denemesi tüketmeden kuyruğa geri döner (`retry.max-interruptions` ile sınırlı). JVM, iş yan etkisi tamamlandıktan sonra fakat kalıcı tamamlanma kaydı yazılmadan önce kapanabilir; bu nedenle consumer iş mantığı idempotent olmalıdır. `@AsyncIdempotencyKey` aynı işin kuyruğa birden fazla kez kabul edilmesini önler, ancak dış sistemdeki yan etkiyi transaction hâline getirmez.
-
-## Dokümanlar
-
-- Kullanım rehberi: [English](../USAGE_GUIDE.md) | [Türkçe](USAGE_GUIDE.md)
-- Tüm ayarların açıklaması: [English](../CONFIGURATION_REFERENCE.md) | [Türkçe](CONFIGURATION_REFERENCE.md)
-- Çalıştırılabilir örnek: [English](../asl-consumer-sample/README.md) | [Türkçe](asl-consumer-sample/README.md)
-- Recovery ve yıpratma testleri: [English](../asl-consumer-sample/CHAOS_TEST_GUIDE.md) | [Türkçe](asl-consumer-sample/CHAOS_TEST_GUIDE.md)
-- Benchmark raporları: [English](../reports/README.md) | [Türkçe](reports/README.md)
-
-## Doğrulama
+## Derleme ve doğrulama
 
 ```powershell
 mvn -B -ntp clean verify
-.\scripts\run-api-compatibility-gate.ps1
-.\scripts\run-data-plane-performance-gate.ps1 -Threads 1,8,32,128
-mvn -B -ntp -Psbom -DskipTests package
 ```
 
-Release akışı source/Javadoc artifact’larının yanında CycloneDX JSON/XML SBOM dosyalarını da üretir. CI matrisi Windows ve Linux üzerinde Temurin ile Semeru/OpenJ9 JVM’lerini doğrular.
+Sürüm kontrolleri (API uyumluluğu, performans, SBOM) [Operasyon](docs/operations.md#sürüm-kontrolleri) sayfasındadır.
 
-## Dağıtım Kanalları
+## Dağıtım
 
 - [GitHub deposu](https://github.com/esasmer-dou/async-service-library)
-- [GitHub Packages](https://maven.pkg.github.com/esasmer-dou/async-service-library)
-- [Yayınlar](https://github.com/esasmer-dou/async-service-library/releases)
-
-GitHub Packages kimlik doğrulaması ve eksiksiz Maven kurulumu [kullanım rehberinde](USAGE_GUIDE.md) bulunur.
+- [GitHub Packages](https://maven.pkg.github.com/esasmer-dou/async-service-library) (kurulum: [Başlarken](docs/getting-started.md#1-depoyu-ekleyin))
+- [Sürümler](https://github.com/esasmer-dou/async-service-library/releases)

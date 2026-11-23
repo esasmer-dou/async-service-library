@@ -1,32 +1,34 @@
-# ASL Consumer Sample
+# ASL örnek uygulaması
 
-[English](../../asl-consumer-sample/README.md) | [Türkçe](README.md)
+**Dil:** [English](../../asl-consumer-sample/README.md) | Türkçe · [Dokümantasyon ana sayfası](../README.md#dokümantasyon)
 
-ASL'i servis katmanında kullanan, çalıştırılabilir bir Spring Boot örneğidir.
+Servis katmanında ASL kullanan, çalıştırılabilir bir Spring Boot uygulaması. Kütüphaneyi denemek içindir; production için değildir.
 
-## Neyi Gösterir
+## Neler denenebilir
 
-- tek Spring Boot uygulamasında governed servisler
-- governed Spring servislerinin enjekte edilmesi
-- servis arayüzleri üzerinden doğrudan REST API
-- senkron governed metotlar
-- MapDB kuyruğu üzerinde async çalışabilen governed metotlar
-- hariç tutulan metotlar
-- merkezi admin server'dan yönetim; sample'ın kendisi hiçbir admin ucu açmaz
+| Servis | Metot | Gösterdiği |
+|---|---|---|
+| `mail.service` | `send(java.lang.String)` | max concurrency 6 olan SYNC metot (yml'den) |
+| `mail.service` | `publishAudit(java.lang.String)` | ASYNC ve 2 consumer ile başlayan metot (yml'den) |
+| `customer.service` | `publishWelcome(java.lang.String)` | SYNC başlayan async-capable metot |
+| `quote.service` | `quote(java.lang.String)` | `CompletableFuture` metot: SYNC ve ASYNC'te aynı cevap |
+| `chaos.service` | `emit(java.lang.String)` | bilerek hata verdirilebilen veya yavaşlatılabilen metot |
+
+Ayarlar [`application.yml`](../../asl-consumer-sample/src/main/resources/application.yml) dosyasındadır.
 
 ## Çalıştırma
 
-Repo kökünden:
+Depo kök dizininden:
 
 ```powershell
 mvn -pl asl-consumer-sample -am spring-boot:run
 ```
 
-Uygulama API'si `http://localhost:8080` adresinde açılır. Tek başına çalışırken sample yml ayarlarıyla çalışır; ayarları çalışırken değiştirmek için merkezi admin server'a bağlanır.
+API `http://localhost:8080` adresinde başlar.
 
-## Merkezi Admin Server'dan Yönetim
+## Admin portalıyla çalıştırma
 
-Admin server'ı başlat (yerel demo ayarları: giriş yok, veri bellekte):
+Lokal bir admin server başlatın (demo ayarları: giriş yok, veri yalnız bellekte):
 
 ```powershell
 mvn -pl asl-admin-server -am package -DskipTests
@@ -34,7 +36,7 @@ java -jar asl-admin-server/target/asl-admin-server-0.1.0-SNAPSHOT-exec.jar `
   --port=8090 --secret=local-demo-secret-0001 --security.mode=NONE --storage.mode=MEMORY
 ```
 
-Sample'ı ona bağlı başlat:
+Örnek uygulamayı ona bağlı başlatın:
 
 ```powershell
 $env:ASL_ADMIN_CLIENT_ENABLED = "true"
@@ -43,191 +45,66 @@ $env:ASL_ADMIN_CLIENT_SECRET = "local-demo-secret-0001"
 mvn -pl asl-consumer-sample -am spring-boot:run
 ```
 
-Portal `http://localhost:8090/asl-admin/` adresindedir; sample `asl-consumer-sample` adıyla görünür. `security.mode=NONE` yalnızca yerel demo içindir; production'da varsayılan `BASIC` giriş (veya kimlik proxy'si arkasında `PROXY_HEADER`) kullanılır ve portal TLS'li bir ingress arkasında çalışır.
+`http://localhost:8090/asl-admin/` adresini açıp `asl-consumer-sample`'ı seçin. `security.mode=NONE` yalnızca lokal demo içindir.
 
-## Runtime Ayarları
+## Uygulamalı örnekler
 
-Sample'ın ayarları [`application.yml`](../../asl-consumer-sample/src/main/resources/application.yml) dosyasındadır:
+**İşi kuyruğa al, sonra bırak**
 
-```yaml
-asl:
-  runtime:
-    default-unavailable-message: Method is disabled
-    max-concurrency-exceeded-message-template: "Method reached max concurrency: %d"
-    services:
-      "[mail.service]":
-        methods:
-          "[send(java.lang.String)]":
-            max-concurrency: 6
-          "[publishAudit(java.lang.String)]":
-            execution-mode: ASYNC
-            consumer-threads: 2
-  admin:
-    client:
-      enabled: false
-      application: asl-consumer-sample
-      queue-browse: true
-  async:
-    mapdb:
-      enabled: true
-      codec: jackson-json
-      path: ./data/asl-consumer-sample-queue.db
-      transactions-enabled: true
-      memory-mapped-enabled: false
-      corruption-policy: ARCHIVE_AND_RESET
-      payload:
-        summary-policy: CODEC
-```
+1. Portalda `customer.service › publishWelcome` için Tune: Execution mode `ASYNC`, Consumer threads `0`.
+2. Bir müşteri oluşturup publish'i birkaç kez çağırın. Kuyruk sayısı artar; henüz hiçbiri çalışmaz.
+   ```powershell
+   $c = Invoke-RestMethod -Method Post http://localhost:8080/api/customers -ContentType application/json `
+        -Body '{"email":"a@company.com","fullName":"A User"}'
+   1..5 | % { Invoke-RestMethod -Method Post "http://localhost:8080/api/customers/$($c.id)/publish-welcome" }
+   ```
+3. Portalda metodun kuyruğunu açıp kayıtlara bakın.
+4. Consumer threads'i `1` yapın ve kuyruğun boşalmasını izleyin.
 
-`asl.runtime.services` başlangıç değerleridir. Portalde verilen override'lar sample bağlıyken bunların üstüne uygulanır; override kaldırılınca metot bu değerlere döner. `queue-browse: true` portalin kuyruk kayıtlarını listelemesine izin verir; bu durumda kayıt özetleri ve hata metinleri admin server'a gider. Sample `asl.async.mapdb.payload.summary-policy: CODEC` verir; böylece portalin kuyruk penceresi her çağrının argümanlarının kısa metnini gösterir. Production servisleri bu metnin gösterilmesi güvenli değilse varsayılan `TYPE_ONLY` (yalnız payload tipi) ile kalmalıdır. Desteklenen tüm property'ler, varsayılanları ve verilmediklerindeki davranış [CONFIGURATION_REFERENCE.md](../CONFIGURATION_REFERENCE.md) dosyasındadır.
+**Hata verdir, sonra replay et**
 
-## Ana API'ler
+1. Sonraki 3 `chaos.service › emit` çağrısını başarısız yapın:
+   ```powershell
+   Invoke-RestMethod -Method Post http://localhost:8080/api/test/scenarios/chaos/emit -ContentType application/json `
+     -Body '{"failuresRemaining":3,"processingDelayMillis":0}'
+   ```
+2. Portalda `emit`'i ASYNC'e geçirip 3 kez çağırın: `POST http://localhost:8080/api/chaos/emit/{id}`.
+3. Portal 3 başarısız kayıt gösterir. Kuyruğu açıp **Bulk… → Replay matching** kullanın (Failed, kategori `BUSINESS`).
 
-Taslak oluştur:
+**SYNC ve ASYNC'te aynı cevap**
 
 ```powershell
-curl -X POST http://localhost:8080/api/mails `
-  -H "Content-Type: application/json" `
-  -d "{\"recipient\":\"user@company.com\",\"subject\":\"Welcome\",\"body\":\"Hello from ASL\"}"
+Invoke-RestMethod http://localhost:8080/api/quotes/ACME     # {"symbol":"ACME","quote":"ACME=…"}
 ```
 
-Mailleri listele: `curl http://localhost:8080/api/mails`
+Portalda `quote.service › quote`'u ASYNC'e geçirip tekrar çağırın: cevap aynıdır, ama artık kuyruktan gelir. `http://localhost:8080/api/quotes/FAIL-1` bir hata gösterir; `/api/quotes/unclaimed` ise hiçbir çağıranın beklemediği sonuçları gösterir.
 
-Tek mail: `curl http://localhost:8080/api/mails/{mailId}`
+## Test endpoint'leri
 
-Mail gönder: `curl -X POST http://localhost:8080/api/mails/{mailId}/send`
+Bunlar yalnızca örnek uygulamada vardır ve kuyruk davranışını taklit etmek içindir.
 
-Audit olayı yayınla: `curl -X POST http://localhost:8080/api/mails/{mailId}/publish-audit`
+| Endpoint | Etkisi |
+|---|---|
+| `POST /api/test/scenarios/mail/audit` | sonraki `publishAudit` çalıştırmalarını başarısız yapar veya yavaşlatır |
+| `POST /api/test/scenarios/customer/welcome` | `publishWelcome` için aynısı |
+| `POST /api/test/scenarios/inventory/snapshot` | `publishSnapshot` için aynısı |
+| `POST /api/test/scenarios/chaos/emit` | `emit` için aynısı |
+| `POST /api/test/scenarios/reset` | örnek uygulamanın tüm durumunu sıfırlar |
+| `GET /api/chaos/storage-recovery` | açılışta bozuk bir kuyruk dosyasının arşivlenip arşivlenmediğini gösterir |
 
-Audit olayları: `curl http://localhost:8080/api/mails/audit-events`
+Gövde: `{"failuresRemaining": 1, "processingDelayMillis": 500}`.
 
-Sağlık: `curl http://localhost:8080/api/health`
+İş endpoint'leri: `/api/mails`, `/api/customers`, `/api/inventory`, `/api/quotes/{symbol}`, `/api/health`.
 
-Müşteri kaydet:
+## Testler
 
-```powershell
-curl -X POST http://localhost:8080/api/customers `
-  -H "Content-Type: application/json" `
-  -d "{\"email\":\"mustafa@company.com\",\"fullName\":\"Mustafa Korkmaz\"}"
-```
-
-Stok kaydı ekle/güncelle:
-
-```powershell
-curl -X POST http://localhost:8080/api/inventory `
-  -H "Content-Type: application/json" `
-  -d "{\"sku\":\"SKU-1\",\"title\":\"Thermal Printer\",\"available\":7}"
-```
-
-## Async Demo
-
-`customer.service -> publishWelcome(java.lang.String)` async çalışabilir ve `SYNC` modda başlar.
-
-Kuyruğa almak için, sample admin server'a bağlıyken:
-
-1. `http://localhost:8090/asl-admin/` adresini aç ve `asl-consumer-sample` uygulamasını seç.
-2. `publishWelcome(java.lang.String)` metodunu `ASYNC` moda al, consumer thread sayısını `0` yap.
-3. `POST /api/customers/{customerId}/publish-welcome` çağrısını birkaç kez yap; bekleyen sayısı artar.
-4. Kuyruğu portalden listele, sonra consumer thread sayısını `1` yap ve kuyruğun boşalmasını izle.
-
-Aynı akış `mail.service -> publishAudit(java.lang.String)` (yml'de zaten `ASYNC`), `inventory.service -> publishSnapshot(java.lang.String)` ve `chaos.service -> emit(java.lang.String)` için de geçerlidir.
-
-Portal, scriptlerin de çağırabildiği küçük bir JSON API'si kullanır ([USAGE_GUIDE.md bölüm 9](../USAGE_GUIDE.md#9-admin-server-portal-apisi)):
-
-```powershell
-$api = "http://localhost:8090/asl-admin/api/apps/asl-consumer-sample"
-Invoke-RestMethod -Method Post "$api/overrides" -Body @{
-  serviceId = "customer.service"; methodId = "publishWelcome(java.lang.String)"; async = "true"; consumerThreads = "1" }
-Invoke-RestMethod "$api"
-```
-
-## Async Senaryo Laboratuvarı
-
-Sample, MapDB tabanlı motora karşı gerçek kuyruk davranışını canlandırmak için yalnızca test amaçlı senaryo uçları sunar:
-
-- mail audit: `POST /api/test/scenarios/mail/audit`
-- müşteri karşılama: `POST /api/test/scenarios/customer/welcome`
-- stok snapshot: `POST /api/test/scenarios/inventory/snapshot`
-- chaos emit: `POST /api/test/scenarios/chaos/emit`
-- tüm sample durumunu sıfırla: `POST /api/test/scenarios/reset`
-- açılışta depo kurtarma durumu: `GET /api/chaos/storage-recovery`
-
-İstek gövdesi:
-
-```json
-{
-  "failuresRemaining": 1,
-  "processingDelayMillis": 500
-}
-```
-
-Örnek, mail audit için bir async hatası üret:
-
-```powershell
-curl -X POST http://localhost:8080/api/test/scenarios/mail/audit `
-  -H "Content-Type: application/json" `
-  -d "{\"failuresRemaining\":1,\"processingDelayMillis\":0}"
-```
-
-## Önerilen Async Test Matrisi
-
-- async başarılı yol
-- async hata kaydı failed kuyruğa taşır
-- replay failed kaydı geri alır ve başarıyla çalıştırır
-- consumer thread `0` bekleyen kuyruk biriktirir
-- delete tek kaydı siler
-- clear çalışmakta olmayan tüm kayıtları siler
-- consumer sayısını artırmak bekleyen işi boşaltır
-- kapatılmış async metot kuyruğa almadan reddeder
-- async çalışabilen metot `SYNC` modda satır içinde çalışır ve satır içinde hata verir
-
-Entegrasyon testi bu akışları uygulamanın kendi bean'leri üzerinden doğrular:
-
-- [AslConsumerSampleIntegrationTest.java](../../asl-consumer-sample/src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleIntegrationTest.java)
-
-## Kurtarma Stres Testi
-
-Repo kökünden (PowerShell 7):
-
-```powershell
-pwsh -File .\scripts\run-mapdb-abuse-suite.ps1
-```
-
-Test merkezi admin server'ı ve admin client'ı açık sample'ı derleyip başlatır. Mod, consumer, listeleme ve replay işlemleri admin server üzerinden yapılır. Bilerek şunları yapar:
-
-- iş beklerken JVM'i sert biçimde öldürür
-- failed kayıt kalıcı hale geldikten sonra JVM'i öldürür
-- iş `IN_PROGRESS` iken JVM'i öldürür
-- aynı kuyruk dosyasında birkaç kez öldür/yeniden başlat döngüsü yapar
-- sample'ı başlığı bilerek bozulmuş bir kuyruk dosyasıyla başlatır
-
-Raporlar yerelde / CI artifact'i olarak `reports/mapdb-abuse/` ve `tr/reports/mapdb-abuse/` altına yazılır. Test her gece CI'da çalışır: [mapdb-abuse-nightly.yml](../../.github/workflows/mapdb-abuse-nightly.yml). Ayrıntı: [tr/reports/README.md](../reports/README.md).
-
-## Chaos ve Kurtarma
-
-Sample, kendi içinde bir async laboratuvar servisi etrafında yeniden başlatmaya dayalı kurtarma testleri de içerir:
-
-- bekleyen kuyruk uygulama yeniden başlatılınca korunur
-- failed kuyruk yeniden başlatmadan sonra kalır ve replay edilebilir
-- çalışan iş graceful shutdown sırasında tamamlanır
-- eskimiş `IN_PROGRESS` kurtarması motor seviyesinde doğrulanır
-
-İlgili testler:
-
-- [AslConsumerSampleChaosRecoveryTest.java](../../asl-consumer-sample/src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleChaosRecoveryTest.java)
-- [MapDbAsyncExecutionEngineCoverageTest.java](../../asl-mapdb/src/test/java/com/reactor/asl/mapdb/MapDbAsyncExecutionEngineCoverageTest.java)
-
-Elle adım adım: [CHAOS_TEST_GUIDE.md](CHAOS_TEST_GUIDE.md)
+- [AslConsumerSampleIntegrationTest](../../asl-consumer-sample/src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleIntegrationTest.java): başarı, hata, replay, silme, temizleme, consumer değişimi, durdurma, SYNC ve ASYNC.
+- [AslConsumerSampleChaosRecoveryTest](../../asl-consumer-sample/src/test/java/com/reactor/asl/consumer/sample/AslConsumerSampleChaosRecoveryTest.java): bekleyen ve başarısız işler restart'ı atlatır; çalışan iş graceful shutdown'da biter.
+- Zorla öldürme kurtarma testi: `pwsh -File .\scripts\run-mapdb-abuse-suite.ps1` (CI'da her gece çalışır; bkz. [raporlar](../reports/README.md)).
+- Adım adım manuel kurtarma testleri: [CHAOS_TEST_GUIDE.md](CHAOS_TEST_GUIDE.md).
 
 ## Notlar
 
-- Mail deposu bellektedir
-- Async kuyruk `./data/asl-consumer-sample-queue.db` üzerinde MapDB ile tutulur
-- Sample MapDB'yi güvenli modda kullanır: `transactions-enabled=true`, `memory-mapped-enabled=false`
-- Sample `corruption-policy=ARCHIVE_AND_RESET` kullanır: başlığı bozuk olduğu doğrulanan dosya yeni depo oluşturulmadan önce `*.corrupt-*` olarak arşivlenir
-- Kilit, izin, disk ve genel I/O hataları bozulma sayılmaz; depo sessizce değiştirilmez, açılış durur
-- Bozuk depo temiz biçimde arşivlenemezse açılış durur
-- Açılışta bir depo arşivlendiyse `GET /api/chaos/storage-recovery` orijinal ve arşiv yolunu döner
-- Tamamen temiz bir başlangıç için sample'ı başlatmadan önce `./data/asl-consumer-sample-queue.db` dosyasını sil
-- Sample hazır Jackson async payload codec'ini kullanır
-- Bu proje kütüphaneyi denemek içindir, production iş verisi saklamak için değildir
+- İş verileri (e-postalar, müşteriler) bellektedir. Kuyruk `./data/asl-consumer-sample-queue.db` konumunda bir MapDB dosyasıdır; temiz bir başlangıç için silin.
+- Örnek uygulama `payload.summary-policy: CODEC` verir; böylece portal argüman metnini gösterir. Production servisleri bu metnin gösterilmesi güvenli değilse varsayılan `TYPE_ONLY` ile kalmalıdır.
+- Örnek uygulama `corruption-policy: ARCHIVE_AND_RESET` verir: bozuk bir kuyruk dosyası kenara alınır ve yenisi oluşturulur. Production varsayılan `FAIL_FAST` ile kalmalıdır.
